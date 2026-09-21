@@ -1,0 +1,478 @@
+{
+  "name": "黑叶萤（沿用已生成的语音）",
+  "note": "由原有 click-lines/idle-lines + manifest 迁移而来。中文/日文用 app/data/lines 里已预生成的 wav；英文暂无文本，将回落到中文文本并用 Edge 中文音色朗读。",
+  "click": [
+    {
+      "text": "博士，怎么啦？",
+      "jp": "ドクター、どうしました？",
+      "en": "",
+      "emo": [
+        "neutral"
+      ],
+      "voice": {
+        "cn": {
+          "src": "file",
+          "file": "click_cn_00.wav"
+        },
+        "jp": {
+          "src": "file",
+          "file": "click_jp_00.wav"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "我在呢，一直都在这儿。",
+      "jp": "私はここにいますよ、どこにも行きません。",
+      "en": "",
+      "emo": [
+        "focus"
+      ],
+      "voice": {
+        "cn": {
+          "src": "file",
+          "file": "click_cn_01.wav"
+        },
+        "jp": {
+          "src": "file",
+          "file": "click_jp_01.wav"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "嗯，您叫我呀？",
+      "jp": "私をお呼びですか？",
+      "en": "",
+      "emo": [
+        "affection"
+      ],
+      "voice": {
+        "cn": {
+          "src": "file",
+          "file": "click_cn_02.wav"
+        },
+        "jp": {
+          "src": "file",
+          "file": "click_jp_02.wav"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "博士，今天也辛苦了。",
+      "jp": "ドクター、今日もお疲れ様です。",
+      "en": "",
+      "emo": [
+        "affection"
+      ],
+      "voice": {
+        "cn": {
+          "src": "file",
+          "file": "click_cn_03.wav"
+        },
+        "jp": {
+          "src": "file",
+          "file": "click_jp_03.wav"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "累了就歇会儿吧，我一直在呢。",
+      "jp": "疲れたらちょっと休んでくださいね。私はずっとここにいますから。",
+      "en": "",
+      "emo": [
+        "neutral"
+      ],
+      "voice": {
+        "cn": {
+          "src": "file",
+          "file": "click_cn_04.wav"
+        },
+        "jp": {
+          "src": "file",
+          "file": "click_jp_04.wav"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "您慢慢看就好，我就在这儿，不会走开的。",
+      "jp": "ゆっくり見てくださいね。私はここにいますから、逃げたりしませんよ。",
+      "en": "",
+      "emo": [
+        "affection"
+      ],
+      "voice": {
+        "cn": {
+          "src": "file",
+          "file": "click_cn_05.wav"
+        },
+        "jp": {
+          "src": "file",
+          "file": "click_jp_05.wav"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "您在我身边的时候，我心里就踏踏实实的。",
+      "jp": "あなたがそばにいてくれると、ほっとして安心します。",
+      "en": "",
+      "emo": [
+        "affection"
+      ],
+      "voice": {
+        "cn": {
+          "src": "file",
+          "file": "click_cn_06.wav"
+        },
+        "jp": {
+          "src": "file",
+          "file": "click_jp_06.wav"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "博士，您忙的时候我就安静在旁边待着，需要什么随时喊我就好，不用客气。",
+      "jp": "ドクター、お忙しい時は私がそばで静かにしてます。何か必要になったらいつでも声をかけてください。遠慮しないでくださいね。",
+      "en": "",
+      "emo": [
+        "focus"
+      ],
+      "voice": {
+        "cn": {
+          "src": "file",
+          "file": "click_cn_07.wav"
+        },
+        "jp": {
+          "src": "file",
+          "file": "click_jp_07.wav"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "您忙多久都没关系，我一直在这儿，想说话了随时找我就好。",
+      "jp": "どれだけお忙しくても大丈夫です。私はずっとここにいますから、お話したくなったらいつでも声をかけてくださいね。",
+      "en": "",
+      "emo": [
+        "affection"
+      ],
+      "voice": {
+        "cn": {
+          "src": "file",
+          "file": "click_cn_08.wav"
+        },
+        "jp": {
+          "src": "file",
+          "file": "click_jp_08.wav"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "博士，不管您忙到多晚，我都在这儿陪着您，您照顾好自己就好。",
+      "jp": "ドクター、どんなに遅くまでお忙しくても、私はずっとここで付き添います。あなたはご自身のことを大切にしてくださいね。",
+      "en": "",
+      "emo": [
+        "affection"
+      ],
+      "voice": {
+        "cn": {
+          "src": "file",
+          "file": "click_cn_09.wav"
+        },
+        "jp": {
+          "src": "file",
+          "file": "click_jp_09.wav"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    }
+  ],
+  "idle": [
+    {
+      "text": "发呆也挺好的，别想太多。",
+      "jp": "ぼーっとするのも悪くないですよ。",
+      "en": "",
+      "time": "any",
+      "emo": [
+        "neutral"
+      ],
+      "voice": {
+        "cn": {
+          "src": "file",
+          "file": "idle_cn_00.wav"
+        },
+        "jp": {
+          "src": "file",
+          "file": "idle_jp_00.wav"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "博士，我陪着您呢。",
+      "jp": "ドクター、私が付き添ってますから。",
+      "en": "",
+      "time": "any",
+      "emo": [
+        "affection"
+      ],
+      "voice": {
+        "cn": {
+          "src": "file",
+          "file": "idle_cn_01.wav"
+        },
+        "jp": {
+          "src": "file",
+          "file": "idle_jp_01.wav"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "在想什么呢？",
+      "jp": "何を考えてるんですか？",
+      "en": "",
+      "time": "any",
+      "emo": [
+        "neutral"
+      ],
+      "voice": {
+        "cn": {
+          "src": "file",
+          "file": "idle_cn_02.wav"
+        },
+        "jp": {
+          "src": "file",
+          "file": "idle_jp_02.wav"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "博士，我就在您身边陪着，您不用担心。",
+      "jp": "ドクター、私はあなたのそばにいますから、心配しないでくださいね。",
+      "en": "",
+      "time": "night",
+      "emo": [
+        "focus"
+      ],
+      "voice": {
+        "cn": {
+          "src": "file",
+          "file": "idle_cn_03.wav"
+        },
+        "jp": {
+          "src": "file",
+          "file": "idle_jp_03.wav"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "时间还早呢，想做什么我都陪着。",
+      "jp": "まだ時間はたっぷりあります。何をしたくても私が付き添いますよ。",
+      "en": "",
+      "time": "day",
+      "emo": [
+        "neutral"
+      ],
+      "voice": {
+        "cn": {
+          "src": "file",
+          "file": "idle_cn_04.wav"
+        },
+        "jp": {
+          "src": "file",
+          "file": "idle_jp_04.wav"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "您专心忙您的，我就安静地陪在您身边。",
+      "jp": "あなたはお忙しいことをなさって、私はそばで静かにあなたに付き添ってますから。",
+      "en": "",
+      "time": "any",
+      "emo": [
+        "neutral"
+      ],
+      "voice": {
+        "cn": {
+          "src": "file",
+          "file": "idle_cn_05.wav"
+        },
+        "jp": {
+          "src": "file",
+          "file": "idle_jp_05.wav"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "博士，有您在的日子，连安静都让人安心。",
+      "jp": "ドクターがいてくれる日々は、静かなことさえ心地よくて安心します。",
+      "en": "",
+      "time": "any",
+      "emo": [
+        "affection"
+      ],
+      "voice": {
+        "cn": {
+          "src": "file",
+          "file": "idle_cn_06.wav"
+        },
+        "jp": {
+          "src": "file",
+          "file": "idle_jp_06.wav"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "您不用一直绷着，偶尔放空一下也没关系，我会在这儿守着，什么都不用担心。",
+      "jp": "いつも張り詰めなくていいんです。たまには何も考えずボーッとしてもいいじゃないですか。私がここで見張ってますから、何も心配いりません。",
+      "en": "",
+      "time": "any",
+      "emo": [
+        "focus"
+      ],
+      "voice": {
+        "cn": {
+          "src": "file",
+          "file": "idle_cn_07.wav"
+        },
+        "jp": {
+          "src": "file",
+          "file": "idle_jp_07.wav"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "我就想这样安安静静陪着您，您忙您的，不用特意顾着我。",
+      "jp": "このまま静かに付き添っていたいだけです。あなたはお忙しいことをなさって、私のことは気にしなくていいですよ。",
+      "en": "",
+      "time": "any",
+      "emo": [
+        "affection"
+      ],
+      "voice": {
+        "cn": {
+          "src": "file",
+          "file": "idle_cn_08.wav"
+        },
+        "jp": {
+          "src": "file",
+          "file": "idle_jp_08.wav"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "博士，无论白天还是深夜，您只要一回头，我都会在这里陪着您，这点从未变过，将来也不会。",
+      "jp": "ドクター、昼でも深夜でも、あなたが振り返るだけで、私はいつでもここで付き添ってます。これだけは今も変わらず、これからも変わりません。",
+      "en": "",
+      "time": "any",
+      "emo": [
+        "affection"
+      ],
+      "voice": {
+        "cn": {
+          "src": "file",
+          "file": "idle_cn_09.wav"
+        },
+        "jp": {
+          "src": "file",
+          "file": "idle_jp_09.wav"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    }
+  ]
+}

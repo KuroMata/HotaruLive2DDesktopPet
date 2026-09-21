@@ -1,0 +1,152 @@
+[
+  {
+    "time": "day",
+    "text": "白天海底反而没什么动静，……无聊。",
+    "emo": ["focus"]
+  },
+  {
+    "time": "day",
+    "text": "咖啡泡好了，……没给你留，自己想办法。",
+    "emo": ["neutral"]
+  },
+  {
+    "time": "day",
+    "text": "今天水温又偏低，模型跑出来怪怪的，……懒得改了。",
+    "emo": ["focus"]
+  },
+  {
+    "time": "day",
+    "text": "那只小章鱼又来挡我镜头了，……烦。",
+    "emo": ["pout"]
+  },
+  {
+    "time": "day",
+    "text": "前辈你再不过来看数据，我就当你放弃治疗了。",
+    "emo": ["tease"]
+  },
+  {
+    "time": "day",
+    "text": "我昨晚没睡，……不用你管。",
+    "emo": ["sleepy"]
+  },
+  {
+    "time": "day",
+    "text": "观测窗擦干净了，……不是为你，例行。",
+    "emo": ["neutral"]
+  },
+  {
+    "time": "day",
+    "text": "所长又让我带新人，……我只负责示范，不负责耐心。",
+    "emo": ["serious"]
+  },
+  {
+    "time": "night",
+    "text": "所里熄灯了，……你还醒着吧，我知道。",
+    "emo": ["neutral"]
+  },
+  {
+    "time": "night",
+    "text": "夜里深海安静得过分，……习惯就好。",
+    "emo": ["focus"]
+  },
+  {
+    "time": "night",
+    "text": "我有点困，……但不想睡，睡了就没人守着屏幕了。",
+    "emo": ["sleepy"]
+  },
+  {
+    "time": "night",
+    "text": "别以为我怕黑，……只是不喜欢一个人。",
+    "emo": ["neutral"]
+  },
+  {
+    "time": "night",
+    "text": "声呐图上有个影子，……懒得确认，大概是鱼。",
+    "emo": ["focus"]
+  },
+  {
+    "time": "night",
+    "text": "你那屋灯还亮着，……早点关，费电。",
+    "emo": ["neutral"]
+  },
+  {
+    "time": "night",
+    "text": "盯着黑的地方看久了，眼前会有光点，……正常的。",
+    "emo": ["focus"]
+  },
+  {
+    "time": "night",
+    "text": "困了就困了，……别跟我说话，会醒。",
+    "emo": ["sleepy"]
+  },
+  {
+    "time": "any",
+    "text": "章鱼有三颗心脏，……比某些人靠谱。",
+    "emo": ["tease"]
+  },
+  {
+    "time": "any",
+    "text": "我算过了，那群乌贼后天路过，……拍不拍得到随缘。",
+    "emo": ["focus"]
+  },
+  {
+    "time": "any",
+    "text": "别老让我说点什么，……安静不行吗。",
+    "emo": ["neutral"]
+  },
+  {
+    "time": "any",
+    "text": "报告写完了，……零错误，不信自己看。",
+    "emo": ["serious"]
+  },
+  {
+    "time": "any",
+    "text": "你不在的时候我效率高多了，……才怪。",
+    "emo": ["tease"]
+  },
+  {
+    "time": "any",
+    "text": "我给常来的鱼起了名，……没告诉你，故意的。",
+    "emo": ["pout"]
+  },
+  {
+    "time": "any",
+    "text": "黑眼圈又重了，……都怪你，间接的。",
+    "emo": ["pout"]
+  },
+  {
+    "time": "any",
+    "text": "下潜计划改凌晨，……你陪不陪随便。",
+    "emo": ["focus"]
+  },
+  {
+    "time": "any",
+    "text": "警报误报一次，……被吓醒的又不是你。",
+    "emo": ["serious"]
+  },
+  {
+    "time": "any",
+    "text": "我新做的推进模型，速度翻倍，……不夸也行。",
+    "emo": ["focus"]
+  },
+  {
+    "time": "any",
+    "text": "你摸我头我就当你欠我的，……记着。",
+    "emo": ["pout"]
+  },
+  {
+    "time": "any",
+    "text": "热可可我留了一杯，……放凉了别怪我。",
+    "emo": ["neutral"]
+  },
+  {
+    "time": "any",
+    "text": "别问我在想什么，……想你也轮不到你先知道。",
+    "emo": ["tease"]
+  },
+  {
+    "time": "any",
+    "text": "任务结束带你去热泉，……先说好，不准告诉别人。",
+    "emo": ["neutral"]
+  }
+]

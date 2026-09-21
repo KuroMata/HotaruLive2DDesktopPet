@@ -1,0 +1,482 @@
+{
+  "step": "done",
+  "diag0": {
+    "ok": true,
+    "title": "黑叶萤桌宠 · 设置",
+    "hasApi": true,
+    "apiCount": 43,
+    "groupCount": 9,
+    "tabCount": 9,
+    "contentChildren": 10,
+    "scripts": [
+      "/app/settings.js"
+    ],
+    "bodyHead": "黑叶萤桌宠 · 设置 改动自动保存 通用 模型 台词 表情与动作 语音 屏幕追踪 视线跟随 音律识别 高级 外观与行为 表情情绪 ? 鼠标追踪 ? 待机台词 ? 待机动作（呼吸/摆头）↻重启生效 ? 口型同步↻重启生效 ? 自动连接聊天（WorkBuddy）↻重启生效 ? 台词显示语言 中文 日本語 English ? 语音语言 中文 日本語 English ? 元音参数族（口型） 自动探测 Param (A/I/U/E/O) ParamMouth Mouth Vowel ParamVowel ? 驱动 OpenY（张合） ? 说话时 Silence 值 说话时 Silence=0（口型接管） 说话时保持 Silence=1 ? 界面字体 系统默认 微软雅黑 等距更纱黑体 Sarasa Mono SC 更纱黑体 Sarasa SC 黑体 等线 ? 界面字号 px ? 启动背景↻重启生效 透"
+  },
+  "snapA": {
+    "ok": true,
+    "modelSel": "Hotaru2024/hotaru2024.model3.json",
+    "modelOptions": [
+      "03852/03852.model3.json",
+      "0423/0423.model3.json",
+      "狩心03-2025-10-21/狩03.model3.json",
+      "星落Memento/星落Memento.model3.json",
+      "akari_vts/akari.model3.json",
+      "bread/bread.model3.json",
+      "CanMengX/CanMengX.model3.json",
+      "DenpaGuu_vts/Nekotakun.model3.json",
+      "hijiki_vts/hijiki.model3.json",
+      "hiyori_vts/hiyori.model3.json",
+      "Hotaru2024/hotaru2024.model3.json",
+      "kaname8/kaname8.model3.json",
+      "KH2.0/kh.model3.json",
+      "KHWH/khwh.model3.json",
+      "KurobaHotaru/KurobaHotaru.model3.json",
+      "KurobaHotaruX/kurobahotarux.model3.json",
+      "KuroMata_Katana/kuromata_katana.model3.json",
+      "KuroMata.ver1/KuroMata_ver1.model3.json",
+      "Matako/Matako.model3.json",
+      "Memento1/memento1.model3.json",
+      "mms/MementoStarfall.model3.json",
+      "mouse/mouse.model3.json",
+      "nyata/nyata.model3.json",
+      "Q-Memento/Q-Memento.model3.json",
+      "rocky/rocky.model3.json",
+      "saki/saki2023_2.model3.json",
+      "saki2024/saki2024.model3.json",
+      "SakiF/sakiF.model3.json",
+      "ShouSummer/ShouSummer.model3.json",
+      "siren/siren.model3.json",
+      "SniperMata/SniperMata.model3.json",
+      "starlight/starlights.model3.json",
+      "tony/tony.model3.json",
+      "toro/toro.model3.json",
+      "tororo_vts/tororo.model3.json",
+      "wanko_vts/wanko.model3.json",
+      "ye_fix/ye_fix.model3.json",
+      "yl/yl.model3.json",
+      "zhama/zhama.model3.json"
+    ],
+    "modelStatus": "当前模型：Hotaru2024/hotaru2024.model3.json（hotaru2024）",
+    "lpModel": "当前模型：Hotaru2024/hotaru2024.model3.json",
+    "lpNote": "",
+    "lpCurId": "hotaru",
+    "lpOptions": [
+      "default",
+      "hotaru"
+    ],
+    "assetInfo": "当前模型：Hotaru2024/hotaru2024.model3.json　·　引擎已加载：动作 2 / 表情 12",
+    "assetFiles": [
+      "idle.motion3.json",
+      "sleep.motion3.json"
+    ],
+    "assetLive": [
+      "已加载",
+      "已加载"
+    ],
+    "assetGroups": {
+      "motions": [
+        "idle.motion3.json",
+        "sleep.motion3.json"
+      ],
+      "expressions": []
+    },
+    "binderTargets": [
+      [
+        "expression",
+        "motion"
+      ],
+      [
+        "idle#0",
+        "sleep#0"
+      ],
+      [
+        "off",
+        "all",
+        "pick"
+      ]
+    ]
+  },
+  "switchAction": {
+    "ok": true,
+    "picked": "nyata/nyata.model3.json"
+  },
+  "snapB": {
+    "ok": true,
+    "modelSel": "nyata/nyata.model3.json",
+    "modelOptions": [
+      "03852/03852.model3.json",
+      "0423/0423.model3.json",
+      "狩心03-2025-10-21/狩03.model3.json",
+      "星落Memento/星落Memento.model3.json",
+      "akari_vts/akari.model3.json",
+      "bread/bread.model3.json",
+      "CanMengX/CanMengX.model3.json",
+      "DenpaGuu_vts/Nekotakun.model3.json",
+      "hijiki_vts/hijiki.model3.json",
+      "hiyori_vts/hiyori.model3.json",
+      "Hotaru2024/hotaru2024.model3.json",
+      "kaname8/kaname8.model3.json",
+      "KH2.0/kh.model3.json",
+      "KHWH/khwh.model3.json",
+      "KurobaHotaru/KurobaHotaru.model3.json",
+      "KurobaHotaruX/kurobahotarux.model3.json",
+      "KuroMata_Katana/kuromata_katana.model3.json",
+      "KuroMata.ver1/KuroMata_ver1.model3.json",
+      "Matako/Matako.model3.json",
+      "Memento1/memento1.model3.json",
+      "mms/MementoStarfall.model3.json",
+      "mouse/mouse.model3.json",
+      "nyata/nyata.model3.json",
+      "Q-Memento/Q-Memento.model3.json",
+      "rocky/rocky.model3.json",
+      "saki/saki2023_2.model3.json",
+      "saki2024/saki2024.model3.json",
+      "SakiF/sakiF.model3.json",
+      "ShouSummer/ShouSummer.model3.json",
+      "siren/siren.model3.json",
+      "SniperMata/SniperMata.model3.json",
+      "starlight/starlights.model3.json",
+      "tony/tony.model3.json",
+      "toro/toro.model3.json",
+      "tororo_vts/tororo.model3.json",
+      "wanko_vts/wanko.model3.json",
+      "ye_fix/ye_fix.model3.json",
+      "yl/yl.model3.json",
+      "zhama/zhama.model3.json"
+    ],
+    "modelStatus": "当前模型：nyata/nyata.model3.json（nyata）",
+    "lpModel": "当前模型：nyata/nyata.model3.json",
+    "lpNote": "（该模型未绑定台词档，已回退到通用档 default；可点右侧「绑定到此模型」改绑）",
+    "lpCurId": "default",
+    "lpOptions": [
+      "default",
+      "hotaru"
+    ],
+    "assetInfo": "当前模型：nyata/nyata.model3.json　·　引擎已加载：动作 0 / 表情 0",
+    "assetFiles": [
+      "idle.motion3.json",
+      "帽子.exp3.json"
+    ],
+    "assetLive": [
+      ""
+    ],
+    "assetGroups": {
+      "motions": [
+        "idle.motion3.json"
+      ],
+      "expressions": [
+        "帽子.exp3.json"
+      ]
+    },
+    "binderTargets": [
+      [
+        "expression",
+        "motion"
+      ],
+      [
+        ""
+      ],
+      [
+        "off",
+        "all",
+        "pick"
+      ]
+    ]
+  },
+  "snapC": {
+    "ok": true,
+    "modelSel": "nyata/nyata.model3.json",
+    "modelOptions": [
+      "03852/03852.model3.json",
+      "0423/0423.model3.json",
+      "狩心03-2025-10-21/狩03.model3.json",
+      "星落Memento/星落Memento.model3.json",
+      "akari_vts/akari.model3.json",
+      "bread/bread.model3.json",
+      "CanMengX/CanMengX.model3.json",
+      "DenpaGuu_vts/Nekotakun.model3.json",
+      "hijiki_vts/hijiki.model3.json",
+      "hiyori_vts/hiyori.model3.json",
+      "Hotaru2024/hotaru2024.model3.json",
+      "kaname8/kaname8.model3.json",
+      "KH2.0/kh.model3.json",
+      "KHWH/khwh.model3.json",
+      "KurobaHotaru/KurobaHotaru.model3.json",
+      "KurobaHotaruX/kurobahotarux.model3.json",
+      "KuroMata_Katana/kuromata_katana.model3.json",
+      "KuroMata.ver1/KuroMata_ver1.model3.json",
+      "Matako/Matako.model3.json",
+      "Memento1/memento1.model3.json",
+      "mms/MementoStarfall.model3.json",
+      "mouse/mouse.model3.json",
+      "nyata/nyata.model3.json",
+      "Q-Memento/Q-Memento.model3.json",
+      "rocky/rocky.model3.json",
+      "saki/saki2023_2.model3.json",
+      "saki2024/saki2024.model3.json",
+      "SakiF/sakiF.model3.json",
+      "ShouSummer/ShouSummer.model3.json",
+      "siren/siren.model3.json",
+      "SniperMata/SniperMata.model3.json",
+      "starlight/starlights.model3.json",
+      "tony/tony.model3.json",
+      "toro/toro.model3.json",
+      "tororo_vts/tororo.model3.json",
+      "wanko_vts/wanko.model3.json",
+      "ye_fix/ye_fix.model3.json",
+      "yl/yl.model3.json",
+      "zhama/zhama.model3.json"
+    ],
+    "modelStatus": "当前模型：nyata/nyata.model3.json（nyata）",
+    "lpModel": "当前模型：nyata/nyata.model3.json",
+    "lpNote": "（该模型未绑定台词档，已回退到通用档 default；可点右侧「绑定到此模型」改绑）",
+    "lpCurId": "default",
+    "lpOptions": [
+      "default",
+      "hotaru"
+    ],
+    "assetInfo": "当前模型：nyata/nyata.model3.json　·　引擎已加载：动作 1 / 表情 1",
+    "assetFiles": [
+      "idle.motion3.json"
+    ],
+    "assetLive": [
+      ""
+    ],
+    "assetGroups": {
+      "motions": [
+        "idle.motion3.json"
+      ],
+      "expressions": []
+    },
+    "binderTargets": [
+      [
+        "expression",
+        "motion"
+      ],
+      [
+        "idle#0"
+      ],
+      [
+        "off",
+        "all",
+        "pick"
+      ]
+    ]
+  },
+  "switchBack": {
+    "ok": true,
+    "picked": "Hotaru2024/hotaru2024.model3.json"
+  },
+  "snapD": {
+    "ok": true,
+    "modelSel": "Hotaru2024/hotaru2024.model3.json",
+    "modelOptions": [
+      "03852/03852.model3.json",
+      "0423/0423.model3.json",
+      "狩心03-2025-10-21/狩03.model3.json",
+      "星落Memento/星落Memento.model3.json",
+      "akari_vts/akari.model3.json",
+      "bread/bread.model3.json",
+      "CanMengX/CanMengX.model3.json",
+      "DenpaGuu_vts/Nekotakun.model3.json",
+      "hijiki_vts/hijiki.model3.json",
+      "hiyori_vts/hiyori.model3.json",
+      "Hotaru2024/hotaru2024.model3.json",
+      "kaname8/kaname8.model3.json",
+      "KH2.0/kh.model3.json",
+      "KHWH/khwh.model3.json",
+      "KurobaHotaru/KurobaHotaru.model3.json",
+      "KurobaHotaruX/kurobahotarux.model3.json",
+      "KuroMata_Katana/kuromata_katana.model3.json",
+      "KuroMata.ver1/KuroMata_ver1.model3.json",
+      "Matako/Matako.model3.json",
+      "Memento1/memento1.model3.json",
+      "mms/MementoStarfall.model3.json",
+      "mouse/mouse.model3.json",
+      "nyata/nyata.model3.json",
+      "Q-Memento/Q-Memento.model3.json",
+      "rocky/rocky.model3.json",
+      "saki/saki2023_2.model3.json",
+      "saki2024/saki2024.model3.json",
+      "SakiF/sakiF.model3.json",
+      "ShouSummer/ShouSummer.model3.json",
+      "siren/siren.model3.json",
+      "SniperMata/SniperMata.model3.json",
+      "starlight/starlights.model3.json",
+      "tony/tony.model3.json",
+      "toro/toro.model3.json",
+      "tororo_vts/tororo.model3.json",
+      "wanko_vts/wanko.model3.json",
+      "ye_fix/ye_fix.model3.json",
+      "yl/yl.model3.json",
+      "zhama/zhama.model3.json"
+    ],
+    "modelStatus": "当前模型：Hotaru2024/hotaru2024.model3.json（hotaru2024）",
+    "lpModel": "当前模型：Hotaru2024/hotaru2024.model3.json",
+    "lpNote": "",
+    "lpCurId": "hotaru",
+    "lpOptions": [
+      "default",
+      "hotaru"
+    ],
+    "assetInfo": "当前模型：Hotaru2024/hotaru2024.model3.json　·　引擎已加载：动作 2 / 表情 12",
+    "assetFiles": [
+      "idle.motion3.json",
+      "sleep.motion3.json"
+    ],
+    "assetLive": [
+      "已加载",
+      "已加载"
+    ],
+    "assetGroups": {
+      "motions": [
+        "idle.motion3.json",
+        "sleep.motion3.json"
+      ],
+      "expressions": []
+    },
+    "binderTargets": [
+      [
+        "expression",
+        "motion"
+      ],
+      [
+        "idle#0",
+        "sleep#0"
+      ],
+      [
+        "off",
+        "all",
+        "pick"
+      ]
+    ]
+  },
+  "consoleErrors": [
+    "console:2:%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security\n  Policy set or a policy with \"unsafe-eval\" enabled. This exposes users of\n  this app to unnecessary secu"
+  ],
+  "checks": [
+    {
+      "name": "页面渲染完成（buildUI 已执行）",
+      "pass": true,
+      "detail": "ok"
+    },
+    {
+      "name": "模型库已扫描出候选",
+      "pass": true,
+      "detail": "ok"
+    },
+    {
+      "name": "A 模型页下拉 = 初始模型",
+      "pass": true,
+      "detail": "Hotaru2024/hotaru2024.model3.json"
+    },
+    {
+      "name": "A 台词页显示初始模型",
+      "pass": true,
+      "detail": "当前模型：Hotaru2024/hotaru2024.model3.json"
+    },
+    {
+      "name": "A 台词档命中模型绑定（hotaru）",
+      "pass": true,
+      "detail": "hotaru"
+    },
+    {
+      "name": "A 已绑档时无「回退 default」提示",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "A 素材页显示初始模型",
+      "pass": true,
+      "detail": "当前模型：Hotaru2024/hotaru2024.model3.json　·　引擎已加载：动作 2 / 表情 12"
+    },
+    {
+      "name": "A 动作候选 = 该模型目录的动作文件",
+      "pass": true,
+      "detail": "[\"idle.motion3.json\",\"sleep.motion3.json\"]"
+    },
+    {
+      "name": "A 表情候选为空（12 个 exp3 都已被 model3.json 引用，无需重复挂）",
+      "pass": true,
+      "detail": "[]"
+    },
+    {
+      "name": "B 成功触发「载入模型」",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "B 台词页在切换后自动跟到新模型（无需重开设置窗）",
+      "pass": true,
+      "detail": "ok"
+    },
+    {
+      "name": "B 模型页下拉 = 新模型",
+      "pass": true,
+      "detail": "nyata/nyata.model3.json"
+    },
+    {
+      "name": "B 模型页状态行 = 新模型",
+      "pass": true,
+      "detail": "当前模型：nyata/nyata.model3.json（nyata）"
+    },
+    {
+      "name": "B 台词页显示新模型",
+      "pass": true,
+      "detail": "当前模型：nyata/nyata.model3.json"
+    },
+    {
+      "name": "B 新模型未绑档 → 回退 default",
+      "pass": true,
+      "detail": "default"
+    },
+    {
+      "name": "B 页面说明「已回退到通用档」",
+      "pass": true,
+      "detail": "（该模型未绑定台词档，已回退到通用档 default；可点右侧「绑定到此模型」改绑）"
+    },
+    {
+      "name": "B 素材页显示新模型",
+      "pass": true,
+      "detail": "当前模型：nyata/nyata.model3.json　·　引擎已加载：动作 0 / 表情 0"
+    },
+    {
+      "name": "B 动作候选已换成新模型目录的动作文件",
+      "pass": true,
+      "detail": "[\"idle.motion3.json\"]"
+    },
+    {
+      "name": "B 表情候选也换成新模型里未被引用的表情",
+      "pass": true,
+      "detail": "[\"帽子.exp3.json\"]"
+    },
+    {
+      "name": "C 收到素材上报后「已加载」计数更新（动作 1 / 表情 1）",
+      "pass": true,
+      "detail": "当前模型：nyata/nyata.model3.json　·　引擎已加载：动作 1 / 表情 1"
+    },
+    {
+      "name": "C 触发绑定页的素材候选同步换成新模型的",
+      "pass": true,
+      "detail": "[\"idle#0\"]"
+    },
+    {
+      "name": "D 切回原模型后台词页同步回来",
+      "pass": true,
+      "detail": "ok"
+    },
+    {
+      "name": "D 台词档同步回 hotaru",
+      "pass": true,
+      "detail": "hotaru"
+    },
+    {
+      "name": "D 动作候选同步回 idle + sleep",
+      "pass": true,
+      "detail": "[\"idle.motion3.json\",\"sleep.motion3.json\"]"
+    }
+  ],
+  "failed": [],
+  "RESULT": "ALL OK"
+}

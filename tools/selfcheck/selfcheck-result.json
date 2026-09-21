@@ -1,0 +1,84 @@
+{
+  "base": "http://127.0.0.1:18765",
+  "failed": [],
+  "consoleErrors": [],
+  "consoleWarnings": [
+    "\n %c %c %c PixiJS 6.5.10 - ✰ WebGL 2 ✰  %c  %c  http://www.pixijs.com/  %c %c ♥%c♥%c♥ \n\n background: #ff66a5; padding:5px 0; background: #ff66a5; padding:5px 0; color: #ff66a5; background: #030307; padding:5px 0; background: #ff66a5; padding:5px 0; background: #ffc3dc; padding:5px 0; background: #ff66a5; padding:5px 0; color: #ff2424; background: #fff; padding:5px 0; color: #ff2424; background: #fff; padding:5px 0; color: #ff2424; background: #fff; padding:5px 0;",
+    "[CSM][I]Live2D Cubism Core version: 05.01.0000 (83951616)\n",
+    "[CSM][I]CubismFramework.startUp() is complete.\n",
+    "[CSM][I]CubismFramework.initialize() is complete.\n",
+    "Live2D Cubism SDK Core Version 5.1.0"
+  ],
+  "windowSize": "384x564",
+  "env": {
+    "PIXI": "object",
+    "PIXI_version": "6.5.10",
+    "cubismCore": "object",
+    "coreVersion": 83951616,
+    "live2dModel": true
+  },
+  "dom": {
+    "hintText": "正在加载模型…",
+    "hintDisplay": "none",
+    "canvas": "328x508",
+    "rects": {
+      "body": "384x564@0,0",
+      "frame": "328x508@28,28",
+      "stage": "328x508@28,28",
+      "live2d": "328x508@28,28",
+      "chat": "328x224@28,273",
+      "bar": "328x39@28,497"
+    },
+    "css": {
+      "bodyPadding": "28px",
+      "stagePosition": "absolute",
+      "stageMask": "linear-gradient(rgba(0, 0, 0, 0) 0px, rg",
+      "ringMaskComposite": "exclude, exclude",
+      "ringPseudo": "linear-gradient(145deg, rgb(0, 229",
+      "ringInsetLayers": 4,
+      "frameAfterContent": "none",
+      "chatMask": "linear-gradient(rgba(0, 0, 0, 0) 0px, rg",
+      "chatMargin": "0px",
+      "gap": 28,
+      "msgSystemFont": "\"Cascadia Mono\", Consolas, \"Microsoft YaHei\", monospace"
+    },
+    "buttons": [
+      "btn-chat:聊天",
+      "btn-glass:透明",
+      "btn-lock:锁",
+      "btn-reset:重置",
+      "btn-hide:隐藏"
+    ],
+    "msgCount": 1,
+    "firstMsg": "渲染核心已挂载 · 正在建立链路…",
+    "status": "链路未就绪 · 无法连接 WorkBuddy 本地服务：请求未能送达（服务未响应）（每 8 秒自动重试）",
+    "glassMode": false
+  },
+  "acp": {
+    "ok": true,
+    "port": 2367,
+    "target": "http://127.0.0.1:2367",
+    "code": "",
+    "message": "WorkBuddy ACP 在线（端口 2367，自动发现）",
+    "candidates": [
+      2367
+    ]
+  },
+  "pixel": {
+    "frameA": 146804,
+    "frameB": 147661,
+    "identical": false,
+    "hashA": "2d1b5fd0a878",
+    "hashB": "8aff830dd9b3",
+    "animated": true
+  },
+  "glass": {
+    "before": "rgba(0, 0, 0, 0)",
+    "after": "rgba(10, 14, 22, 0.34)",
+    "restored": "rgba(0, 0, 0, 0)",
+    "tintImage": "radial-gradient(120% 55% at 50% -8",
+    "changed": true,
+    "buttonLabel": "透明"
+  },
+  "elapsedMs": 20396
+}

@@ -1,0 +1,110 @@
+{
+  "step": "done",
+  "buildUIRendered": true,
+  "main": {
+    "ok": true,
+    "title": "黑叶萤桌宠 · 设置",
+    "tabs": [
+      "通用",
+      "模型",
+      "台词",
+      "表情与动作",
+      "语音",
+      "屏幕追踪",
+      "视线跟随",
+      "音律识别",
+      "高级"
+    ],
+    "groups": [
+      "外观与行为 [14 rows]",
+      "模型库与模型切换（可换任意 Live2D 模型，无需重启） [1 rows]",
+      "台词内容 · 三语言 · 语音来源（TTS 合成 / 自录音频 / 预生成） [2 rows]",
+      "模型自带的 exp3 表情 / motion 动作 · 触发方式 [2 rows]",
+      "TTS 语音 [17 rows]",
+      "屏幕运动追踪（让桌宠追着运动的物体看） [9 rows]",
+      "视线 / 头部跟随（鼠标追踪 + 屏幕运动追踪共用） [5 rows]",
+      "音律识别（BPM/节拍驱动闭眼跟拍） [12 rows]",
+      "高级（端口 / 模型 / 环境，改后多需重启程序） [11 rows]"
+    ],
+    "counts": {
+      "tabs": 9,
+      "groups": 9,
+      "rows": 73,
+      "wideCtrl": 5,
+      "modelLib": 1,
+      "lpPicker": 1,
+      "lineEditor": 1,
+      "assetLink": 1,
+      "assetBinder": 1,
+      "leCards": 10,
+      "abCards": 1,
+      "lpOptions": 29,
+      "alRows": 2,
+      "alLive": 2
+    },
+    "wide": [
+      {
+        "cls": "wide-ctrl model-lib",
+        "size": "0x0",
+        "ctrlGridColumn": "1/-1",
+        "ctrlGridRow": "2",
+        "rowTemplate": "1fr auto"
+      },
+      {
+        "cls": "wide-ctrl lp-picker",
+        "size": "0x0",
+        "ctrlGridColumn": "1/-1",
+        "ctrlGridRow": "2",
+        "rowTemplate": "1fr auto"
+      },
+      {
+        "cls": "wide-ctrl line-editor",
+        "size": "0x0",
+        "ctrlGridColumn": "1/-1",
+        "ctrlGridRow": "2",
+        "rowTemplate": "1fr auto"
+      },
+      {
+        "cls": "wide-ctrl asset-link",
+        "size": "0x0",
+        "ctrlGridColumn": "1/-1",
+        "ctrlGridRow": "2",
+        "rowTemplate": "1fr auto"
+      },
+      {
+        "cls": "wide-ctrl asset-binder",
+        "size": "0x0",
+        "ctrlGridColumn": "1/-1",
+        "ctrlGridRow": "2",
+        "rowTemplate": "1fr auto"
+      }
+    ],
+    "bodyHead": "黑叶萤桌宠 · 设置 改动自动保存 通用 模型 台词 表情与动作 语音 屏幕追踪 视线跟随 音律识别 高级 外观与行为 表情情绪 ? 鼠标追踪 ? 待机台词 ? 待机动作（呼吸/摆头）↻重启生效 ? 口型同步↻重启生效 ? 自动连接聊天（WorkBuddy）↻重启生效 ? 台词显示语言 中文 日本語 English ? 语音语言 中文 日本語 English ? 元音参数族（口型） 自动探测 Param (A/I/U/E/O) ParamMouth Mouth Vowel ParamVowel ? 驱动 OpenY（张合） ? 说话时 Silence 值 说话时 Silence=0（口型接管） 说话时保持 Silence=1 ? 界面字体 系统默认 微软雅黑 等距更纱黑体 Sarasa Mono SC 更纱黑体 Sarasa SC 黑体 等线 ? 界面字号 px ? 启动背景↻重启生效 透明背景 磨砂玻璃 ? 已保存",
+    "hasErrParagraph": false
+  },
+  "tabSwitch": {
+    "ok": true,
+    "clicked": 3,
+    "visible": [
+      "模型自带的 exp3 表情 / motion 动作 · 触发方式"
+    ],
+    "visibleRows": 2
+  },
+  "shot": "D:\\live2d-companion\\tools\\selfcheck\\probe-settings.png",
+  "consoleErrors": [
+    "console:2:%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security\n  Policy set or a policy with \"unsafe-eval\" enabled. This exposes"
+  ],
+  "ipcCalled": {
+    "pet:getConfig": 1,
+    "pet:scanModels": 1,
+    "pet:listLineProfiles": 1,
+    "pet:scanModelAssets": 1,
+    "pet:getModelAssets": 2,
+    "pet:getDisplays": 1,
+    "pet:getModelParams": 1,
+    "pet:getOutputDevices": 1,
+    "pet:getAudioDevices": 1,
+    "pet:getMusicState": 8,
+    "pet:getLineProfile": 1
+  }
+}

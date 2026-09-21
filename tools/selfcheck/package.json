@@ -1,0 +1,7 @@
+{
+  "name": "l2c-selfcheck",
+  "version": "1.0.0",
+  "description": "Live2D Companion 自检：加载真实页面，检查资源、依赖、模型加载与待机动作",
+  "main": "m.js",
+  "private": true
+}

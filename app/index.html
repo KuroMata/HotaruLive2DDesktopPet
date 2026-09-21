@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Live2D Companion</title>
+  <link rel="stylesheet" href="/app/styles.css" />
+  <!-- Live2D 依赖（UMD）。路径已按 node_modules 实际文件校准：
+       - pixi v6 的 UMD 在 dist/browser/ 下，不是 dist/ 根目录
+       - Cubism 3/4 模型（.moc3）用 cubism4 专用包，不要用 index.min.js 全量包：
+         全量包会先尝试注册 Cubism 2 运行时，缺 live2d.min.js 时抛
+         "Could not find Cubism 2 runtime"，进而 PIXI.live2d.Live2DModel 注册不上 -->
+  <!-- 注意 core 用的是 app/vendor/ 下的官方新版，而不是 node_modules 里的：
+       npm 上 live2dcubismcore 停在 1.0.2（Core 4.2.2），只支持到 moc3 v4，
+       而 Hotaru2024.moc3 是 moc3 v5，会报
+       "csmReviveMocInPlace is failed. The Core unsupport later than moc3 ver:[4]"。
+       app/vendor 里的这份取自官方 CDN，支持 moc3 v5，且不受 npm install 影响。 -->
+  <script src="/node_modules/pixi.js/dist/browser/pixi.min.js"></script>
+  <script src="/vendor/live2dcubismcore.min.js"></script>
+  <script src="/node_modules/pixi-live2d-display/dist/cubism4.min.js"></script>
+</head>
+<body>
+  <!-- 窗体：默认完全透明，仅霓虹描边 + 底部玻璃面板可见；模型舞台铺满整个窗体，
+       这样模型可以被拖到任意位置，也不会在聊天面板上沿被裁出一条直边。 -->
+  <div id="window-frame">
+    <div id="stage">
+      <div id="live2d"></div>
+      <div id="live2d-hint">正在加载模型…</div>
+      <div id="idle-bubble"></div>
+      <div id="drag-tip">拖动模型可移动 · 滚轮可缩放 · 拖动底栏移动窗口（锁定后均禁用）</div>
+    </div>
+
+    <div id="chat">
+      <div id="messages"></div>
+      <div id="status">未连接</div>
+      <div id="input-row">
+        <textarea id="input" rows="1" placeholder="和 WorkBuddy 说点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
+        <button id="send">发送</button>
+      </div>
+    </div>
+
+    <div id="volume-bar">
+      <span id="vol-label" class="vol-label" title="点击静音 / 再点一次解除静音">音量</span>
+      <input id="vol" type="range" min="0" max="100" step="1" value="10"
+             title="语音音量（0-100）" aria-label="语音音量" />
+      <span id="vol-num">10</span>
+    </div>
+
+    <div id="bottom-bar">
+      <!-- 品牌字已移除：底栏空间让给功能按钮（窗口宽度同时由 384 调到 500px） -->
+      <button id="btn-chat" title="展开/收起聊天记录（输入框始终常驻）">聊天</button>
+      <button id="btn-idle" title="立即触发一条待机台词">待机</button>
+      <button id="btn-glass" title="切换背景：透明底 / 毛玻璃底">透明</button>
+      <button id="btn-lock" title="锁定/解锁模型位置与缩放">锁定</button>
+      <button id="btn-reset" title="重置模型位置与缩放">重置</button>
+      <button id="btn-settings" title="打开设置窗口（隐藏窗口请用托盘菜单）">设置</button>
+    </div>
+  </div>
+
+  <script src="/app/js/workbuddy-bridge.js"></script>
+  <script src="/app/js/live2d-loader.js"></script>
+  <script src="/app/js/screen-tracker.js"></script>
+  <script src="/app/js/music-tracker.js"></script>
+  <script src="/app/js/app.js"></script>
+</body>
+</html>

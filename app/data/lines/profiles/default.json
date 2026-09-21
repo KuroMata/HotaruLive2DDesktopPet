@@ -1,0 +1,358 @@
+{
+  "name": "通用话术（不绑定角色）",
+  "note": "换到其他模型时默认使用这一档：不含任何预生成语音，全部按所选语言用 TTS 现场合成。可在设置页「台词」分页自由增删改。",
+  "click": [
+    {
+      "text": "你好，我在这里。",
+      "jp": "こんにちは、ここにいます。",
+      "en": "Hello, I'm right here.",
+      "emo": [
+        "joy"
+      ],
+      "voice": {
+        "cn": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "zh-CN-XiaoxiaoNeural"
+        },
+        "jp": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "ja-JP-NanamiNeural"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "需要我做点什么吗？",
+      "jp": "何かお手伝いしましょうか？",
+      "en": "Is there anything you need?",
+      "emo": [
+        "curious"
+      ],
+      "voice": {
+        "cn": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "zh-CN-XiaoxiaoNeural"
+        },
+        "jp": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "ja-JP-NanamiNeural"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "我在听着呢。",
+      "jp": "聞いていますよ。",
+      "en": "I'm listening.",
+      "emo": [
+        "neutral"
+      ],
+      "voice": {
+        "cn": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "zh-CN-XiaoxiaoNeural"
+        },
+        "jp": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "ja-JP-NanamiNeural"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "嗯，交给我吧。",
+      "jp": "うん、任せてください。",
+      "en": "Sure, leave it to me.",
+      "emo": [
+        "focus"
+      ],
+      "voice": {
+        "cn": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "zh-CN-XiaoxiaoNeural"
+        },
+        "jp": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "ja-JP-NanamiNeural"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "今天也辛苦了。",
+      "jp": "今日もお疲れさまでした。",
+      "en": "Good work today.",
+      "emo": [
+        "affection"
+      ],
+      "voice": {
+        "cn": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "zh-CN-XiaoxiaoNeural"
+        },
+        "jp": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "ja-JP-NanamiNeural"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "慢慢来就好。",
+      "jp": "ゆっくりで大丈夫ですよ。",
+      "en": "Take your time.",
+      "emo": [
+        "neutral"
+      ],
+      "voice": {
+        "cn": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "zh-CN-XiaoxiaoNeural"
+        },
+        "jp": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "ja-JP-NanamiNeural"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "累了就休息一会儿吧。",
+      "jp": "疲れたら少し休みましょう。",
+      "en": "Take a break if you are tired.",
+      "emo": [
+        "affection"
+      ],
+      "voice": {
+        "cn": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "zh-CN-XiaoxiaoNeural"
+        },
+        "jp": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "ja-JP-NanamiNeural"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "我一直都在旁边。",
+      "jp": "ずっとそばにいます。",
+      "en": "I'll always be right beside you.",
+      "emo": [
+        "affection"
+      ],
+      "voice": {
+        "cn": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "zh-CN-XiaoxiaoNeural"
+        },
+        "jp": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "ja-JP-NanamiNeural"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    }
+  ],
+  "idle": [
+    {
+      "text": "我在这儿陪着你。",
+      "jp": "ここで付き添っています。",
+      "en": "I'm here with you.",
+      "emo": [
+        "affection"
+      ],
+      "voice": {
+        "cn": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "zh-CN-XiaoxiaoNeural"
+        },
+        "jp": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "ja-JP-NanamiNeural"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "现在要做什么呢？",
+      "jp": "今は何をしましょうか？",
+      "en": "What shall we do now?",
+      "emo": [
+        "curious"
+      ],
+      "voice": {
+        "cn": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "zh-CN-XiaoxiaoNeural"
+        },
+        "jp": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "ja-JP-NanamiNeural"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "安静一会儿也不错。",
+      "jp": "少し静かにするのもいいですね。",
+      "en": "A quiet moment is nice too.",
+      "emo": [
+        "neutral"
+      ],
+      "voice": {
+        "cn": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "zh-CN-XiaoxiaoNeural"
+        },
+        "jp": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "ja-JP-NanamiNeural"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "有事随时叫我。",
+      "jp": "用があったら呼んでください。",
+      "en": "Call me whenever you need me.",
+      "emo": [
+        "neutral"
+      ],
+      "voice": {
+        "cn": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "zh-CN-XiaoxiaoNeural"
+        },
+        "jp": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "ja-JP-NanamiNeural"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "慢慢忙，不着急。",
+      "jp": "ゆっくり進めてください、急がなくて大丈夫です。",
+      "en": "No rush, take it slow.",
+      "emo": [
+        "focus"
+      ],
+      "voice": {
+        "cn": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "zh-CN-XiaoxiaoNeural"
+        },
+        "jp": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "ja-JP-NanamiNeural"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    },
+    {
+      "text": "休息一下眼睛吧。",
+      "jp": "少し目を休めましょう。",
+      "en": "Let your eyes rest for a while.",
+      "emo": [
+        "affection"
+      ],
+      "voice": {
+        "cn": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "zh-CN-XiaoxiaoNeural"
+        },
+        "jp": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "ja-JP-NanamiNeural"
+        },
+        "en": {
+          "src": "tts",
+          "engine": "edge",
+          "voice": "en-US-AriaNeural"
+        }
+      }
+    }
+  ]
+}

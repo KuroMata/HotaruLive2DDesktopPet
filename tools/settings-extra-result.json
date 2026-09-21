@@ -1,0 +1,57 @@
+{
+  "phase": "done",
+  "console": [
+    "2 | %cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security\n  Policy set or a policy with \"unsafe-eval\" enabled. This exposes users of\n  this app to unnecessary security risks.\n\nFor more information and help, consult\nhttps://electronjs.org/docs/tutorial/security.\nThis warning will not show up\nonce the app is packaged. @sandbox_bundle:2"
+  ],
+  "snapshot": {
+    "title": "黑叶萤桌宠 · 设置",
+    "tabCount": 5,
+    "groupCount": 5,
+    "rowCount": 56,
+    "bodyHead": "黑叶萤桌宠 · 设置 改动自动保存 通用 语音 屏幕追踪 视线跟随 高级 外观与行为 表情情绪 ? 鼠标追踪 ? 待机台词 ? 待机动作（呼吸/摆头）↻重启生效 ? 口型同步↻重启生效 ? 自动连接聊天（WorkBuddy）↻重启生效 ? 台词显示语言 中文 日本語 ? 语音语言 中文 日本語 ? 元音参数族（口型） 自动探测 Param (A/I/U/E/O) ParamMouth Mouth "
+  },
+  "dom": {
+    "tabs": [
+      "通用",
+      "语音",
+      "屏幕追踪",
+      "视线跟随",
+      "高级"
+    ],
+    "gazeTabIndex": 3,
+    "groupTitle": "视线 / 头部跟随（鼠标追踪 + 屏幕运动追踪共用）",
+    "rowLabels": [
+      "视线平滑",
+      "眼球幅度",
+      "头部幅度",
+      "头部平滑",
+      "额外追踪参数"
+    ],
+    "helpCount": 5,
+    "hasExtraBox": true,
+    "extraRows": 1,
+    "addBtnText": "+ 添加追踪参数",
+    "firstSelectOptions": 7,
+    "firstSelectValue": "ParamBodyX",
+    "firstSelectRect": "150x31",
+    "groupOverflow": 0,
+    "ctrlRect": "728x85"
+  },
+  "afterAdd": {
+    "rowsBefore": 1,
+    "rowsAfter": 2,
+    "lastSelectOptions": [
+      "x",
+      "y"
+    ],
+    "overflowsWindow": false
+  },
+  "capturedKeys": [
+    {
+      "key": "gaze.extra",
+      "type": "array(2)",
+      "sample": "[{\"id\":\"ParamBodyX\",\"axis\":\"x\",\"amp\":2,\"flip\":false},{\"id\":\"ParamAngleX\",\"axis\":\"x\",\"amp\":1,\"flip\":false}]"
+    }
+  ],
+  "shot": true
+}

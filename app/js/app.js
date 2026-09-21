@@ -1,0 +1,1028 @@
+// app.js —— 界面逻辑：加载 Live2D + 桥接 WorkBuddy 对话
+(function () {
+  'use strict';
+
+  const statusEl = document.getElementById('status');
+  const messagesEl = document.getElementById('messages');
+  const inputEl = document.getElementById('input');
+  const sendBtn = document.getElementById('send');
+  const live2dBox = document.getElementById('live2d');
+  const hintEl = document.getElementById('live2d-hint');
+  const frameEl = document.getElementById('window-frame');
+
+  const GREETING_KEY = 'l2d-greeted-v1';
+  const GLASS_KEY = 'l2d-bg-glass-v1';
+
+  let CONFIG = {};
+  let bridge = null;
+  let connected = false;
+  let connecting = null;     // 进行中的连接 Promise（避免重复连接）
+  let retryTimer = null;
+  let bootAttempts = 0;
+  let acpPort = 0;           // 主进程自动发现的 ACP 端口（仅用于状态栏展示）
+  const l2d = new window.Live2DController();
+  // 调试/自检句柄：tools/selfcheck 与一次性探针靠它读取模型状态（缩放、位置、锁定）。
+  // 只挂在 window 上，不参与业务逻辑。
+  window.__l2d = l2d;
+
+  function setStatus(t) { if (statusEl) statusEl.textContent = t; }
+
+  // 发送框自适应高度：默认一行；随内容增长，超过约第 6 行后内部滚动。
+  function autoGrow() {
+    inputEl.style.height = 'auto';
+    const max = 140;
+    const h = Math.min(inputEl.scrollHeight, max);
+    inputEl.style.height = h + 'px';
+    inputEl.style.overflowY = inputEl.scrollHeight > max ? 'auto' : 'hidden';
+  }
+
+  function addMsg(role, text) {
+    const div = document.createElement('div');
+    div.className = 'msg ' + role;
+    div.textContent = text;
+    messagesEl.appendChild(div);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return div;
+  }
+
+  // 系统提示（居中的窄条），用于链路状态一类的"非对话"信息
+  function addSystem(text) { return addMsg('system', text); }
+
+  function showMessages() {
+    const chat = document.getElementById('chat');
+    if (chat && chat.classList.contains('compact')) {
+      chat.classList.remove('compact');
+      setTimeout(() => l2d.resize(), 30);
+    }
+  }
+
+  // 语音（TTS）总开关：初值取自 config.json，托盘菜单可运行时切换（pet:setTTS）
+  let ttsOn = false;          // 是否启用语音
+  let ttsVoice = '';          // 指定音色（空 = 引擎默认）
+  let idleOn = true;          // 待机台词（自动随机）开关：托盘可实时切换
+  let displayLang = 'cn';     // 台词显示语言（'cn'/'jp'/'en'），托盘可切
+  let voiceLang = 'cn';       // 语音语言（'cn'/'jp'/'en'），托盘可切
+
+  async function loadConfig() {
+    try {
+      CONFIG = await fetch('/config.json').then(r => r.json());
+    } catch (e) {
+      CONFIG = {};
+    }
+    ttsOn = CONFIG.ttsEnabled !== false;
+    ttsVoice = CONFIG.ttsVoice || '';
+    idleOn = CONFIG.idleLinesEnabled !== false;
+    displayLang = CONFIG.idleDisplayLang || 'cn';
+    voiceLang = CONFIG.idleVoiceLang || 'cn';
+    let vol = Number(CONFIG.ttsVolume);
+    if (!isFinite(vol)) vol = 10;
+    try { const sv = localStorage.getItem('l2d-tts-volume'); if (sv !== null) vol = Number(sv); } catch (e) { /* 忽略 */ }
+    ttsVolume = Math.max(0, Math.min(100, Math.round(isFinite(vol) ? vol : 10)));
+    // 把口型调试开关同步给 live2d-loader（托盘菜单可运行时改写这些值）
+    window.__companionConfig = CONFIG;
+    if (window.__l2d) {
+      window.__l2d.config = CONFIG;
+      window.__l2d._vowelFamily = CONFIG.vowelParamFamily || 'auto';
+      window.__l2d._driveOpenY = CONFIG.vowelModeDriveOpenY !== false;
+      window.__l2d._silenceSpeaking = (CONFIG.silenceSpeakingValue === 1) ? 1 : 0;
+      window.__l2d._emotionEnabled = CONFIG.emotionEnabled !== false;   // 情绪/表情层总开关
+    }
+    loadBindings();
+  }
+
+  // ---------------------------------------------------------------- 背景模式
+  // 透明底：模型浮在桌面上，除聊天面板与底栏外全部透空。
+  // 毛玻璃：给窗口套一层半透明磨砂底，可以透出下方的窗口内容。
+  function applyBackground(glass, persist) {
+    if (frameEl) frameEl.classList.toggle('glass-mode', !!glass);
+    const b = document.getElementById('btn-glass');
+    if (b) {
+      b.textContent = glass ? '毛玻璃' : '透明';
+      b.classList.toggle('active', !!glass);
+      b.title = glass
+        ? '当前：毛玻璃底（半透明，可透出下方窗口）— 点击切回透明底'
+        : '当前：透明底（模型直接浮在桌面上）— 点击切换为毛玻璃底';
+    }
+    if (persist) { try { localStorage.setItem(GLASS_KEY, glass ? '1' : '0'); } catch (e) { /* 忽略 */ } }
+  }
+
+  function initBackground() {
+    let saved = null;
+    try { saved = localStorage.getItem(GLASS_KEY); } catch (e) { /* 忽略 */ }
+    const glass = saved !== null ? saved === '1' : (CONFIG.startupBackground === 'glass');
+    applyBackground(glass, false);
+  }
+
+  // ---------------------------------------------------------------- Live2D
+  // 把本模型真实存在的参数 ID 列表上报给主进程，供设置窗「额外追踪参数」下拉枚举。
+  // 优先公开方法 getAllParamIds()，无则退回内部的 _getAllParamIds()；拿不到就静默跳过。
+  function reportModelParamsToMain(ctrl) {
+    try {
+      if (!window.desktopPet || !window.desktopPet.reportModelParams) return;
+      const ids = ctrl
+        ? (ctrl.getAllParamIds ? ctrl.getAllParamIds()
+          : (ctrl._getAllParamIds ? ctrl._getAllParamIds() : []))
+        : [];
+      if (Array.isArray(ids) && ids.length) window.desktopPet.reportModelParams(ids);
+    } catch (e) {}
+  }
+
+  // 枚举本机音频输入设备并上报主进程，供设置窗「监听设备」下拉使用。
+  // 主窗口已持有媒体权限上下文，能拿到真实设备名；设置窗自己枚举 label 会是空的。
+  function reportAudioDevicesToMain() {
+    try {
+      if (!window.desktopPet || !window.desktopPet.reportAudioDevices) return;
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+      navigator.mediaDevices.enumerateDevices().then((list) => {
+        // 同时上报输入与输出设备：输出设备不能直接采集，但列出便于用户核对
+        // （回环抓的是"Windows 默认输出设备"的混音，用户需要知道自己默认的是哪个）。
+        // 注意：未获媒体授权时 label 为空，所以开启音律识别后还会再补报一次（见 pet:setMusic）。
+        const all = (list || []).filter((d) => d && (d.kind === 'audioinput' || d.kind === 'audiooutput'))
+          .map((d) => ({
+            deviceId: d.deviceId,
+            label: d.label || ((d.kind === 'audiooutput' ? '输出设备 ' : '输入设备 ') + String(d.deviceId || '').slice(0, 8)),
+            kind: d.kind
+          }));
+        window.desktopPet.reportAudioDevices(all);
+      }).catch(() => {});
+    } catch (e) {}
+  }
+
+  // 音律识别状态上报（供设置窗「音律识别」的观测面板显示）。
+  // 设置窗是独立窗口，读不到主窗渲染进程里的追踪器，所以这里每 500ms 把状态发给主进程缓存。
+  //   mode: '-' 未检测到音乐 / 'A' 只跑连续律动（BPM 未锁定）/ 'B' 已锁定 BPM 的正弦律动
+  let musicReportTimer = null;
+  function startMusicStateReport() {
+    if (musicReportTimer) return;
+    const tick = () => {
+      try {
+        if (!window.desktopPet || !window.desktopPet.reportMusicState) return;
+        const M = window.__musicTracker;
+        if (!M) { window.desktopPet.reportMusicState({ enabled: false, active: false, playing: false, mode: '-', bpm: 0, level: 0 }); return; }
+        const playing = M.isPlaying ? M.isPlaying() : false;
+        const locked = M.isBpmStable ? M.isBpmStable() : false;
+        const bpm = (M.getBpm ? M.getBpm() : 0) || 0;
+        // 实际跑的方案：tracker.getMode() 已综合 enableA/enableB 开关与 BPM 是否测稳；
+        // 旧逻辑（playing ? locked?'B':'A' : '-'）仅作兜底。
+        const mode = (M.getMode ? M.getMode() : (playing ? (locked ? 'B' : 'A') : '-'));
+        window.desktopPet.reportMusicState({
+          enabled: !!(M.isEnabled ? M.isEnabled() : false),   // 音律识别开关（区分"没开"与"开了但没采到音频"）
+          active: !!(M.isActive ? M.isActive() : false),      // 采集是否真的跑起来了
+          playing: !!playing,
+          mode: mode,
+          bpm: (mode === 'B') ? bpm : 0,
+          level: M.getLevel ? M.getLevel() : 0
+        });
+      } catch (e) {}
+    };
+    tick();
+    musicReportTimer = setInterval(tick, 500);
+  }
+
+  // 追踪器（屏幕运动 / 音律识别）只在首次加载模型时初始化：换模型热重载时复用同一实例，
+  // 重复 init 会在同一份渲染进程里拉起两套采集循环。
+  let trackersInited = false;
+
+  function initLive2D() {
+    if (!l2d.ready()) {
+      const miss = l2d.diagnose ? l2d.diagnose() : [];
+      hintEl.textContent = 'Live2D 依赖未就绪，缺少：' + (miss.join('、') || '未知') +
+        '。请先 npm install，并确认 index.html 引用的 UMD 路径（见 SETUP.md / 运行说明.md）。';
+      return;
+    }
+    const url = (CONFIG.modelUrl) || '/models/Hotaru2024/hotaru2024.model3.json';
+    l2d.idle = CONFIG.idleMotion !== false;
+    l2d.load(live2dBox, url).then(() => {
+      hintEl.style.display = 'none';
+      // 把从本地存储恢复的锁定状态同步到 UI 与主进程（托盘菜单标签）
+      updateLockButton(l2d.locked);
+      if (window.desktopPet) window.desktopPet.lockModel(l2d.locked);
+      // 拖动提示几秒后淡出
+      const tip = document.getElementById('drag-tip');
+      if (tip) setTimeout(() => tip.classList.add('faded'), 6000);
+      // 待机台词（路线 C，纯本地、不接 WorkBuddy）：台词以浮动气泡显示，
+      // 口型由 live2d-loader 按文本逐字驱动（C8 口型断句）。
+      l2d.onIdleLine = onIdleShown;          // 气泡仅显示（音频由 onPickLine 统一接管）
+      l2d.onPickLine = onPickLine;           // 按显示/语音语言选预置音频、自录音频或运行时合成
+      l2d.onModelClick = onModelClick;       // 点击模型：播台词（行为不变）+ 触发绑定的表情/动作
+      l2d.onAssetEvent = (ev) => {
+        if (window.desktopPet && window.desktopPet.log) {
+          window.desktopPet.log('[assets] 播放 ' + ev.kind + ' ' + ev.target);
+        }
+      };
+      startIdleChat();
+      if (!trackersInited) {
+        trackersInited = true;
+        // 屏幕运动追踪（路线 D）：模型像追鼠标一样盯住画面里移动的物体。默认关闭，
+        // 由托盘菜单「屏幕运动追踪」或快捷键 Ctrl+Shift+M 开启；开启后会经 getUserMedia 采集主屏。
+        if (window.ScreenTracker && window.ScreenTracker.init) {
+          window.__screenTracker = window.ScreenTracker.init(l2d);
+        }
+        // 音律识别（BPM/节拍驱动闭眼跟拍）：经系统音频回环检测节拍，驱动头部下点头 + 闭眼。
+        if (window.MusicTracker && window.MusicTracker.init) {
+          window.__musicTracker = window.MusicTracker.init();
+          l2d.setMusicTracker(window.__musicTracker);
+          const men = window.__companionConfig && window.__companionConfig.music;
+          if (men && men.enabled) l2d.setMusicEnabled(true);
+        }
+        if (window.__musicTracker && window.__companionConfig && window.__companionConfig.music) {
+          window.__musicTracker.setParams(window.__companionConfig.music);
+        }
+      }
+      // 重要：把持久化的视线跟随 / 音律识别参数在启动时推给渲染进程。否则上次在设置窗改过的值
+      // 只写进了 config.json（菜单里看得到），但 live2d 仍用旧默认值——要等下次改任意参数触发
+      // 一次保存（applyConfigKey → pet:setGazeCfg/pet:setMusicCfg）才生效。这里补上初始下发。
+      const g = window.__companionConfig && window.__companionConfig.gaze;
+      if (l2d && l2d.setGazeCfg && g) l2d.setGazeCfg(g);
+      // 模型参数列表上报主进程：设置窗「额外追踪参数」下拉要枚举本模型真实存在的参数 ID
+      reportModelParamsToMain(l2d);
+      // 启动音律识别状态上报（设置窗观测面板：是否检测到音乐 / A 还是 B / BPM）
+      startMusicStateReport();
+      // 上报本机音频输入设备（设置窗「监听设备」下拉用）
+      reportAudioDevicesToMain();
+      // 鼠标追踪总开关：按配置初值设定（默认开；设置窗/托盘可关）
+      if (l2d && l2d.setMouseFollow) {
+        const mf = window.__companionConfig && window.__companionConfig.mouseFollow;
+        l2d.setMouseFollow(mf !== false);
+      }
+    }).catch((e) => {
+      console.error(e);
+      hintEl.textContent = '模型加载失败：' + e.message;
+    });
+  }
+
+  // 换模型：热重载（不重启程序，保住聊天记录与 WorkBuddy 链路）。
+  // 顺序很重要：先卸旧模型 → 重读 config（模型绑定/台词档/绑定可能一起变了）→ 重读台词档 → 加载新模型。
+  let reloading = false;
+  async function reloadModel(url) {
+    if (reloading) return;
+    reloading = true;
+    try {
+      if (url) CONFIG.modelUrl = url;
+      try { if (l2d.destroy) l2d.destroy(); } catch (e) { /* 忽略 */ }
+      hintEl.style.display = '';
+      hintEl.textContent = '正在载入模型…';
+      await loadConfig();
+      applyUIFont(window.__companionConfig);
+      await loadLineProfile();
+      initLive2D();
+    } finally {
+      reloading = false;
+    }
+  }
+
+  // ---------------------------------------------------------------- 待机台词（路线 C）
+  // 随机播放待机台词，不接 WorkBuddy；台词以浮动气泡显示，口型由 live2d-loader 按文本驱动。
+  let idleBubbleTimer = null;
+  // 气泡默认停留时长：随文本长度，最少 3.5s、最多 8s
+  function bubbleDefaultMs(text) {
+    return Math.min(8000, Math.max(3500, (text ? text.length : 0) * 220 + 1500));
+  }
+  // 统一的气泡隐藏计时：若语音还在播，则暂不隐藏、稍后重试，
+  // 避免"文字在语音播完前就消失"。语音结束后由 onended 重新计时。
+  function armBubbleHide(ms) {
+    if (idleBubbleTimer) clearTimeout(idleBubbleTimer);
+    idleBubbleTimer = setTimeout(() => {
+      if (window.__ttsPlaying) { armBubbleHide(400); return; }
+      const b = document.getElementById('idle-bubble');
+      if (b) b.classList.remove('show');
+    }, ms);
+  }
+  function showIdleBubble(text, holdMs) {
+    const b = document.getElementById('idle-bubble');
+    if (!b) return;
+    b.textContent = text;
+    b.classList.add('show');
+    armBubbleHide(holdMs != null ? holdMs : bubbleDefaultMs(text));
+  }
+  // 让气泡再停留 ms（TTS 播完时调用 → 语音结束后约 2 秒才消失）
+  function holdBubble(ms) { armBubbleHide(ms); }
+  function startIdleChat() {
+    const opts = { min: Number(CONFIG.idleLineMin) || 14000, max: Number(CONFIG.idleLineMax) || 38000 };
+    // 台词池来自"台词档"（见 loadLineProfile）。档里为空时不注入任何池，
+    // loader 会退化为内置兜底台词 —— 也就是"新模型默认不沿用原语音"的落地表现。
+    if (lineProfile.idle.length) l2d.initIdleChat(lineProfile.idle, opts);
+    l2d.setIdleEnabled(idleOn);
+    l2d.setClickLines(lineProfile.click.length ? lineProfile.click : null);
+  }
+
+  // ---------------------------------------------------------------- 语音（TTS）
+  // 台词气泡出现时，并行请求本地 TTS 侧车合成语音并播放（/api/tts 由主进程同源代理）。
+  // 侧车不可用时静默失败，不影响气泡与口型。
+  // 本步只做"文本 → WAV → 播放"；下一步将用 AnalyserNode 的 RMS 驱动 ParamMouthOpenY，
+  // 因此这里已把 analyser 接在播放链上，RMS 暂存到 window.__ttsRms 备用。
+  let ttsCtx = null;
+  let ttsSrc = null;
+  let ttsAnalyser = null;
+  let ttsGain = null;
+  let ttsData = null;
+  let ttsRaf = 0;
+  let ttsVolume = 10;          // 播放音量 0-100（默认 10，避免一打开就震耳朵）
+  let ttsMuted = false;        // 静音开关（点「音量」二字切换；不改动 ttsVolume）
+  let ttsStartAt = 0;          // 本次播放的 AudioContext 起始时间
+  let ttsDuration = 0;         // 本次音频时长（秒），用于算播放进度
+
+  function onIdleShown(text, emo) {
+    showIdleBubble(text);
+  }
+
+  // ---------------------------------------------------------------- 台词档（profile）
+  // 台词不再写死在 click-lines.json / idle-lines.json，而是读"台词档"：
+  //   app/data/lines/profiles/<id>.json  →  { name, click:[...], idle:[...] }
+  // 每条台词含中/日/英文本 + emo + **三语言各自独立的语音来源**：
+  //   { src:'file', file:'click_cn_00.wav' }   项目内预生成音频（相对 app/data/lines/）
+  //   { src:'abs',  file:'D:/我的录音/a.wav' }  使用者自己录的音频（引用原路径，不复制）
+  //   { src:'tts',  engine:'edge', voice:'en-US-AriaNeural' }  运行时合成
+  // 模型 ↔ 台词档的绑定写在 config.lineProfile；未绑定的模型落到 default 档 ——
+  // 这就是"替换后的模型默认不沿用原来做好的语音"的落实方式。
+  let lineProfile = { id: '', name: '', click: [], idle: [] };
+
+  function modelKeyFromUrl(url) {
+    return String(url || '').replace(/^\/models\//, '').replace(/\\/g, '/');
+  }
+  function profileIdForModel() {
+    const key = modelKeyFromUrl(CONFIG.modelUrl);
+    const map = CONFIG.lineProfile || {};
+    const hit = map && map[key];
+    return hit ? String(hit) : 'default';
+  }
+  // 取某条台词在指定语言下的文本（英文/日文缺失时回退中文，避免念不出来）
+  function lineText(entry, lang) {
+    if (!entry) return '';
+    if (lang === 'jp') return entry.jp || entry.text || '';
+    if (lang === 'en') return entry.en || entry.text || '';
+    return entry.text || '';
+  }
+
+  // 取某条台词在指定语言下该用的"语音来源"。
+  // 关键点：若该语言没有文本（例如 hotaru 档没有英文台词），实际会被念的是中文，
+  // 此时必须用中文的语音来源，否则会出现"用英文音色念中文"的怪声。
+  function voiceFor(entry, lang) {
+    if (!entry || !entry.voice) return null;
+    const has = (lang === 'jp') ? !!entry.jp : (lang === 'en') ? !!entry.en : true;
+    const use = has ? lang : 'cn';
+    return entry.voice[use] || null;
+  }
+
+  async function loadLineProfile() {
+    const id = profileIdForModel();
+    let prof = null;
+    try {
+      if (window.desktopPet && window.desktopPet.getLineProfile) {
+        const r = await window.desktopPet.getLineProfile(id);
+        if (r && r.ok && r.profile) prof = r.profile;
+      }
+      if (!prof) {
+        const r2 = await fetch('/app/data/lines/profiles/' + encodeURIComponent(id) + '.json');
+        if (r2 && r2.ok) prof = await r2.json();
+      }
+    } catch (e) { /* 忽略：档缺失时用空池 */ }
+    lineProfile = {
+      id: id,
+      name: (prof && prof.name) || id,
+      click: (prof && Array.isArray(prof.click)) ? prof.click : [],
+      idle: (prof && Array.isArray(prof.idle)) ? prof.idle : []
+    };
+    if (window.desktopPet && window.desktopPet.log) {
+      window.desktopPet.log('[lines] 台词档=' + id + ' 点击 ' + lineProfile.click.length +
+        ' 条 / 待机 ' + lineProfile.idle.length + ' 条');
+    }
+    return lineProfile;
+  }
+
+  // ---------------------------------------------------------------- 表情与动作触发（R3）
+  // config.assets.bindings 结构：
+  //   { id, kind:'expression'|'motion', target:<表情名>, group/index/holdMs/loop（动作用）,
+  //     onClick:bool, onIdle:bool, onLine:'off'|'all'|'pick', lineRefs:['click:0', ...],
+  //     hotkey:'Alt+1' }
+  let bindings = [];
+  let hotkeyScope = 'window';
+
+  function loadBindings() {
+    const A = (window.__companionConfig && window.__companionConfig.assets) || CONFIG.assets || {};
+    bindings = Array.isArray(A.bindings) ? A.bindings.filter((b) => b && b.id) : [];
+    hotkeyScope = (A.hotkeyScope === 'global') ? 'global' : 'window';
+    if (window.desktopPet && window.desktopPet.log) {
+      window.desktopPet.log('[assets] 触发绑定 ' + bindings.length + ' 条，快捷键范围=' + hotkeyScope);
+    }
+  }
+
+  function playBinding(b) {
+    if (!b || !window.__l2d) return false;
+    if (b.kind === 'motion') {
+      const hold = (b.holdMs == null || b.holdMs === '') ? undefined : Number(b.holdMs);
+      return window.__l2d.playMotion(b.group, Number(b.index) || 0,
+        { holdMs: isFinite(hold) ? hold : undefined, loop: !!b.loop });
+    }
+    const hold = (b.holdMs == null || b.holdMs === '') ? undefined : Number(b.holdMs);
+    return window.__l2d.playExpression(b.target, isFinite(hold) ? hold : undefined);
+  }
+
+  // 收集某触发点该播的绑定。同一触发点若绑了多个动作，只随机挑一个播
+  // （两个动作同时写同一批参数会互相打架）；表情可以都播（后写的覆盖前者）。
+  function pickBound(trigger, ctx) {
+    const hit = [];
+    for (const b of bindings) {
+      if (trigger === 'click') { if (b.onClick) hit.push(b); continue; }
+      if (trigger === 'idle') { if (b.onIdle) hit.push(b); continue; }
+      if (trigger === 'line') {
+        const mode = b.onLine || 'off';
+        if (mode === 'all') hit.push(b);
+        else if (mode === 'pick' && ctx && Array.isArray(b.lineRefs) &&
+          b.lineRefs.indexOf(ctx.pool + ':' + ctx.idx) >= 0) hit.push(b);
+      }
+    }
+    const motions = hit.filter((b) => b.kind === 'motion');
+    const exprs = hit.filter((b) => b.kind !== 'motion');
+    const out = [];
+    if (motions.length) out.push(motions[Math.floor(Math.random() * motions.length)]);
+    return out.concat(exprs);
+  }
+
+  function playBound(trigger, ctx) {
+    const list = pickBound(trigger, ctx);
+    for (const b of list) { try { playBinding(b); } catch (e) { /* 忽略 */ } }
+    return list.length;
+  }
+
+  window.__playAssetById = (id) => {
+    const b = bindings.find((x) => x && x.id === id);
+    if (!b) return false;
+    return playBinding(b);
+  };
+
+  // 快捷键规格解析（"Alt+1" / "ctrl+shift+m"）；与主进程 normalizeAccelerator 的写法对齐。
+  function parseKeySpec(s) {
+    const out = { ctrl: false, alt: false, shift: false, meta: false, key: '' };
+    String(s || '').split('+').forEach((p) => {
+      const t = p.trim(); if (!t) return;
+      const l = t.toLowerCase();
+      if (l === 'ctrl' || l === 'control') out.ctrl = true;
+      else if (l === 'alt') out.alt = true;
+      else if (l === 'shift') out.shift = true;
+      else if (l === 'meta' || l === 'cmd' || l === 'super' || l === 'win') out.meta = true;
+      else out.key = (t.length === 1) ? t.toUpperCase() : t;
+    });
+    return out;
+  }
+  function bindingMatchesHotkey(b, e) {
+    if (!b || !b.hotkey) return false;
+    const k = parseKeySpec(b.hotkey);
+    if (!k.key) return false;
+    const evKey = String(e.key || '');
+    const keyOk = (k.key.length === 1)
+      ? evKey.toUpperCase() === k.key
+      : evKey.toLowerCase() === k.key.toLowerCase();
+    return keyOk && !!e.ctrlKey === k.ctrl && !!e.altKey === k.alt &&
+      !!e.shiftKey === k.shift && !!e.metaKey === k.meta;
+  }
+
+  // 点击模型：先播绑定的表情/动作，再播台词（台词行为保持不变）。
+  function onModelClick() {
+    playBound('click', null);
+    l2d.sayClick();
+  }
+
+  // ---------------------------------------------------------------- 预生成 / 自录 / 合成 音频播放
+  function ttsPlayWav(url, onFail) {
+    const ctx = ttsEnsureCtx();
+    if (!ctx) { if (onFail) onFail(); return; }
+    // 立刻进入"音频嘴"状态，避免文本驱动抢先（嘴比声音快）
+    window.__ttsPlaying = true; window.__ttsProgress = 0; window.__ttsRms = 0;
+    fetch(url).then((r) => {
+      if (!r.ok) throw new Error('audio ' + r.status);
+      return r.arrayBuffer();
+    }).then((ab) => ctx.decodeAudioData(ab)).then((buf) => {
+      if (ttsSrc) { try { ttsSrc.stop(); } catch (e) { /* 忽略 */ } }
+      ttsSrc = ctx.createBufferSource();
+      ttsSrc.buffer = buf;
+      ttsSrc.connect(ttsAnalyser);
+      ttsStartAt = ctx.currentTime;
+      ttsDuration = buf.duration || 0.001;
+      ttsSrc.onended = () => {
+        ttsSrc = null;
+        window.__ttsRms = 0;
+        window.__ttsPlaying = false;
+        window.__ttsProgress = 1;
+        holdBubble(2000);
+        if (window.__l2d && typeof window.__l2d.onAudioEnded === 'function') window.__l2d.onAudioEnded();
+      };
+      ttsSrc.start();
+      ttsRmsLoop();
+    }).catch((e) => {
+      window.__ttsPlaying = false;
+      if (window.desktopPet && window.desktopPet.log) window.desktopPet.log('[audio] ' + e.message);
+      // 音频文件缺失 / 解码失败 → 回落到运行时合成，避免"点了没声音"
+      if (onFail) { try { onFail(); } catch (e2) { /* 忽略 */ } }
+    });
+  }
+
+  // 台词被选中（来自 live2d-loader 的 sayClick / _tryIdleLine / forceIdleLine）。
+  // pool: 'click'|'idle'；idx: 池内索引；entry: 台词档里的原始条目。
+  function onPickLine(pool, idx, entry) {
+    const dlang = displayLang, vlang = voiceLang;
+    const displayText = lineText(entry, dlang);
+    const audioText = lineText(entry, vlang);
+    const emo = (entry && entry.emo) ? entry.emo : null;
+    // 气泡显示（显示语言）；口型元音跟随音频语言（playIdleLine 的第三个参数）。
+    if (window.__l2d) window.__l2d.playIdleLine(displayText || audioText, emo, audioText || displayText);
+    // R3：绑定"播放台词时触发"的表情/动作（先触发，避免被语音加载拖后）
+    playBound('line', { pool: pool, idx: idx });
+    if (pool === 'idle') playBound('idle', null);
+    if (!ttsOn) return;
+    const v = voiceFor(entry, vlang);
+    if (v && v.src === 'file' && v.file) {
+      ttsPlayWav('/app/data/lines/' + String(v.file).replace(/^[\/\\]+/, ''),
+        () => ttsSpeak(audioText, emo, v));
+      return;
+    }
+    if (v && v.src === 'abs' && v.file) {
+      ttsPlayWav('/api/user-audio?path=' + encodeURIComponent(v.file),
+        () => ttsSpeak(audioText, emo, v));
+      return;
+    }
+    if (audioText) ttsSpeak(audioText, emo, v);   // TTS 合成（含"沿用旧预生成"缺失时的兜底）
+  }
+
+  function ttsEnsureCtx() {
+    if (!ttsCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      ttsCtx = new AC();
+      ttsAnalyser = ttsCtx.createAnalyser();
+      ttsAnalyser.fftSize = 512;
+      ttsGain = ttsCtx.createGain();
+      ttsGain.gain.value = ttsEffectiveGain();
+      // 链路：源 → 分析器（取 RMS，音量无关）→ 增益（音量）→ 输出
+      ttsAnalyser.connect(ttsGain);
+      ttsGain.connect(ttsCtx.destination);
+      ttsData = new Uint8Array(ttsAnalyser.fftSize);
+    }
+    if (ttsCtx.state === 'suspended') { try { ttsCtx.resume(); } catch (e) {} }
+    return ttsCtx;
+  }
+
+  function ttsSpeak(text, emo, src) {
+    if (!text) return;
+    const ctx = ttsEnsureCtx();
+    if (!ctx) return;
+    // 立刻进入"音频嘴"状态：合成/网络期间响度=0 → 嘴闭合等待，
+    // 避免文本驱动抢先跑完（那就是"嘴比 TTS 快"的观感）。
+    window.__ttsPlaying = true;
+    window.__ttsProgress = 0;
+    window.__ttsRms = 0;
+    // 引擎/音色优先级：台词自身指定 > 设置里"按语言"的预设 > 全局音色。
+    const perLang = (CONFIG.ttsLang && CONFIG.ttsLang[voiceLang]) || {};
+    const engine = (src && src.engine) || perLang.engine || '';
+    const voice = (src && src.voice) || perLang.voice || ttsVoice || '';
+    let q = '/api/tts?text=' + encodeURIComponent(text);
+    if (emo) q += '&emo=' + encodeURIComponent(Array.isArray(emo) ? emo.join(',') : emo);
+    if (engine) q += '&engine=' + encodeURIComponent(engine);
+    if (voice) q += '&voice=' + encodeURIComponent(voice);
+    fetch(q).then((r) => {
+      if (!r.ok) throw new Error('TTS ' + r.status);
+      return r.arrayBuffer();
+    }).then((ab) => ctx.decodeAudioData(ab)).then((buf) => {
+      if (ttsSrc) { try { ttsSrc.stop(); } catch (e) { /* 忽略 */ } }
+      ttsSrc = ctx.createBufferSource();
+      ttsSrc.buffer = buf;
+      ttsSrc.connect(ttsAnalyser);
+      ttsStartAt = ctx.currentTime;
+      ttsDuration = buf.duration || 0.001;
+      ttsSrc.onended = () => {
+        ttsSrc = null;
+        window.__ttsRms = 0;
+        window.__ttsPlaying = false;
+        window.__ttsProgress = 1;
+        // 音频播完 → 气泡再停留 2 秒才消失
+        holdBubble(2000);
+        // 并由 loader 结束当前台词（闭口、排下一条）
+        if (window.__l2d && typeof window.__l2d.onAudioEnded === 'function') window.__l2d.onAudioEnded();
+      };
+      ttsSrc.start();
+      ttsRmsLoop();
+    }).catch((e) => {
+      window.__ttsPlaying = false;   // 合成/解码失败：交回文本驱动口型
+      if (window.desktopPet && window.desktopPet.log) window.desktopPet.log('[tts] ' + e.message);
+    });
+  }
+
+  // 计算播放中的 RMS 与播放进度（下一步驱动口型）
+  function ttsRmsLoop() {
+    if (!ttsAnalyser || ttsRaf) return;
+    const step = () => {
+      if (!ttsSrc) { ttsRaf = 0; window.__ttsRms = 0; return; }
+      ttsAnalyser.getByteTimeDomainData(ttsData);
+      let sum = 0;
+      for (let i = 0; i < ttsData.length; i++) { const v = (ttsData[i] - 128) / 128; sum += v * v; }
+      window.__ttsRms = Math.sqrt(sum / ttsData.length);
+      if (ttsDuration > 0) {
+        window.__ttsProgress = Math.min(1, Math.max(0, (ttsCtx.currentTime - ttsStartAt) / ttsDuration));
+      }
+      ttsRaf = requestAnimationFrame(step);
+    };
+    ttsRaf = requestAnimationFrame(step);
+  }
+
+  // ---------------------------------------------------------------- 音量控制
+  // 底栏上方的音量条：控制 TTS 播放增益（0-100）。实时生效并写入 localStorage。
+  function ttsEffectiveGain() { return ttsMuted ? 0 : ttsVolume / 100; }
+
+  function ttsApplyVolume() {
+    if (ttsGain) ttsGain.gain.value = ttsEffectiveGain();
+    const bar = document.getElementById('volume-bar');
+    if (bar) bar.style.setProperty('--vol-pct', ttsMuted ? '0%' : (ttsVolume + '%'));
+    const num = document.getElementById('vol-num');
+    if (num) num.textContent = ttsMuted ? '静音' : String(ttsVolume);
+    const lab = document.getElementById('vol-label');
+    if (lab) {
+      lab.textContent = ttsMuted ? '已静音' : '音量';
+      lab.classList.toggle('muted', ttsMuted);
+    }
+    const sl = document.getElementById('vol');
+    if (sl && Number(sl.value) !== ttsVolume) sl.value = String(ttsVolume);
+  }
+
+  function initVolume() {
+    const sl = document.getElementById('vol');
+    if (sl) {
+      sl.value = String(ttsVolume);
+      sl.addEventListener('input', () => {
+        ttsVolume = Math.max(0, Math.min(100, Math.round(Number(sl.value) || 0)));
+        ttsMuted = false;    // 拖动滑块即解除静音（符合常见播放器习惯）
+        try { localStorage.setItem('l2d-tts-volume', String(ttsVolume)); } catch (e) { /* 忽略 */ }
+        ttsApplyVolume();
+      });
+    }
+    const lab = document.getElementById('vol-label');
+    if (lab) {
+      lab.addEventListener('click', () => { ttsMuted = !ttsMuted; ttsApplyVolume(); });
+    }
+    ttsApplyVolume();
+  }
+
+  // 托盘切换语音总开关
+  if (window.desktopPet && typeof window.desktopPet.on === 'function') {
+    window.desktopPet.on('pet:setIdleEnabled', (v) => {
+      idleOn = !!v;
+      if (l2d.setIdleEnabled) l2d.setIdleEnabled(idleOn);
+    });
+    window.desktopPet.on('pet:setTTS', (v) => {
+      ttsOn = !!(v && v.enabled);
+      if (!ttsOn) {
+        if (ttsSrc) { try { ttsSrc.stop(); } catch (e) { /* 忽略 */ } ttsSrc = null; }
+        window.__ttsPlaying = false;    // 关语音时交回文本驱动口型
+      }
+    });
+    window.desktopPet.on('pet:setLang', (v) => {
+      if (v && v.display) displayLang = v.display;
+      if (v && v.voice) voiceLang = v.voice;
+    });
+  }
+
+  // ---------------------------------------------------------------- 链路
+  function makeBridge() {
+    if (bridge) return bridge;
+    // 默认走主进程同源代理（避开跨域导致的 "Failed to fetch"）。
+    // 代理模式下端口由主进程自动发现，页面不用关心；
+    // 只有把 useAcpProxy 设为 false 时才直连 acpBaseUrl（需上游配了 CORS）。
+    const base = CONFIG.useAcpProxy === false ? (CONFIG.acpBaseUrl || '') : '';
+    bridge = new window.WorkBuddyBridge(base, { cwd: CONFIG.acpCwd || '.' });
+    return bridge;
+  }
+
+  // 已建立的链路状态文案（带上主进程自动发现的 ACP 端口，便于排查）
+  function linkedStatus() {
+    return '链路已建立 · WorkBuddy ACP 在线' + (acpPort ? '（端口 ' + acpPort + '）' : '');
+  }
+
+  async function connectNow() {
+    const b = makeBridge();
+    if (b.proxied) {
+      const h = await b.health();
+      if (!h.ok) throw new Error(h.message || 'WorkBuddy 本地服务未就绪');
+      acpPort = h.port || 0;   // 主进程自动发现出来的端口
+    }
+    await b.connect();
+    await b.newSession();
+    connected = true;
+  }
+
+  async function ensureConnected() {
+    if (connected) return;
+    if (connecting) return connecting;
+    connecting = (async () => {
+      try { await connectNow(); } finally { connecting = null; }
+    })();
+    return connecting;
+  }
+
+  function scheduleRetry() {
+    if (retryTimer || connected) return;
+    const ms = Math.max(2000, Number(CONFIG.acpRetryMs) || 8000);
+    retryTimer = setTimeout(() => { retryTimer = null; tryConnect(); }, ms);
+  }
+
+  async function tryConnect() {
+    if (connected) return true;
+    bootAttempts++;
+    setStatus(bootAttempts === 1 ? '正在连接 WorkBuddy 本地服务…' : '正在重试连接…');
+    try {
+      await ensureConnected();
+      setStatus(linkedStatus());
+      // 首次是失败后才成功的，补一条记录，避免记录框停在"正在连接"
+      if (bootAttempts > 1) { showMessages(); addSystem('链路已建立，等待指令。'); }
+      return true;
+    } catch (e) {
+      const msg = (e && e.message) ? e.message : String(e);
+      setStatus('链路未就绪 · ' + msg + '（每 ' + Math.round((Number(CONFIG.acpRetryMs) || 8000) / 1000) + ' 秒自动重试）');
+      scheduleRetry();
+      return false;
+    }
+  }
+
+  async function send() {
+    const text = inputEl.value.trim();
+    if (!text) return;
+    inputEl.value = '';
+    autoGrow();
+    showMessages();
+    addMsg('user', text);
+    const bubble = addMsg('assistant', '…');
+
+    l2d.setSpeaking(true);
+    try {
+      await ensureConnected();
+      if (!connected) throw new Error('链路未建立');
+      let acc = '';
+      bubble.textContent = '';
+      await bridge.sendPrompt(text, {
+        onText: (t) => {
+          acc += t;
+          bubble.textContent = acc;
+          l2d.feedChatText(acc);   // 实时喂给口型引擎，聊天回复也做元音对照
+          messagesEl.scrollTop = messagesEl.scrollHeight;
+        },
+        // 历史回放：桌宠附着在 WorkBuddy 的当前会话上，流里会先把整段历史推一遍。
+        // 回放期间只显示"同步中"，并把气泡清空，免得把历史当成本轮回复。
+        onReplay: (active) => {
+          if (active) {
+            acc = '';
+            bubble.classList.add('syncing');
+            bubble.textContent = '（正在同步 WorkBuddy 会话历史…）';
+            setStatus('正在同步会话历史…');
+          } else {
+            acc = '';
+            bubble.classList.remove('syncing');
+            bubble.textContent = '';
+            setStatus('已接收本轮回复，生成中…');
+          }
+          messagesEl.scrollTop = messagesEl.scrollHeight;
+        },
+        onError: (e) => { bubble.textContent = '[错误] ' + e.message; }
+      });
+      bubble.classList.remove('syncing');
+      if (!acc) {
+        // 真的一个字都没有时，给一句可解释的提示，而不是干挂着"无文本回复"
+        bubble.textContent = bubble.classList.contains('syncing')
+          ? '(本轮没有文本回复)'
+          : '(无文本回复)';
+      }
+      setStatus(linkedStatus());
+    } catch (e) {
+      const msg = (e && e.message) ? e.message : String(e);
+      bubble.textContent = '无法送达：' + msg;
+      setStatus('链路未就绪 · ' + msg);
+      // 端口可能已变化（WorkBuddy 重启）：清掉内存里的端口，让下次探活重新发现
+      acpPort = 0;
+      scheduleRetry();
+    } finally {
+      l2d.setSpeaking(false);
+    }
+  }
+
+  // ---------------------------------------------------------------- 按钮
+  // 锁定按钮：与托盘菜单共用同一入口（desktopPet.lockModel），保证状态一致
+  function updateLockButton(v) {
+    const b = document.getElementById('btn-lock');
+    if (!b) return;
+    b.textContent = v ? '解锁' : '锁定';
+    b.classList.toggle('active', v);
+    b.title = v ? '已锁定窗口与模型位置/缩放（点击解锁）' : '锁定窗口与模型位置/缩放';
+    // 锁定同时关掉底栏的窗口拖拽区，避免误拖窗口位置（main 进程还会 setResizable(false)）
+    const bar = document.getElementById('bottom-bar');
+    if (bar) bar.classList.toggle('locked-win', v);
+  }
+
+  sendBtn.addEventListener('click', send);
+  inputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+  inputEl.addEventListener('input', autoGrow);
+
+  // ---------------------------------------------------------------- 输入框抽屉收起
+  // 聊天窗收起（compact）且光标长期未靠近窗口、且输入框为空时，输入框+发送键像抽屉一样向下隐藏；
+  // 光标回到窗口 / 输入框获焦 / 输入有文字 / 聊天窗展开 任一发生即展开。
+  const RETRACT_DELAY = 2500;
+  let composerTimer = null;
+  function chatCompact() {
+    const c = document.getElementById('chat');
+    return !!(c && c.classList.contains('compact'));
+  }
+  function inputEmpty() { return inputEl.value.trim() === ''; }
+  function showComposer() {
+    const row = document.getElementById('input-row');
+    if (row) row.classList.remove('retracted');
+    if (composerTimer) { clearTimeout(composerTimer); composerTimer = null; }
+  }
+  function scheduleRetract() {
+    const row = document.getElementById('input-row');
+    if (!row || row.classList.contains('retracted')) return;
+    if (composerTimer) return;
+    composerTimer = setTimeout(() => {
+      composerTimer = null;
+      if (chatCompact() && inputEmpty()) {
+        const r = document.getElementById('input-row');
+        if (r) r.classList.add('retracted');
+      }
+    }, RETRACT_DELAY);
+  }
+  function refreshComposer() {
+    if (!chatCompact() || !inputEmpty()) { showComposer(); return; }
+    if (l2d.isCursorOverWindow && l2d.isCursorOverWindow()) showComposer();
+    else scheduleRetract();
+  }
+  inputEl.addEventListener('input', refreshComposer);
+  inputEl.addEventListener('focus', showComposer);
+  const chatEl = document.getElementById('chat');
+  if (chatEl) chatEl.addEventListener('mouseenter', showComposer);
+  const barEl = document.getElementById('bottom-bar');
+  if (barEl) barEl.addEventListener('mouseenter', showComposer);
+  setInterval(refreshComposer, 350);
+
+  document.getElementById('btn-chat').addEventListener('click', () => {
+    const chat = document.getElementById('chat');
+    chat.classList.toggle('compact');
+    // 面板展开/收起会改变可用高度，重新适配（用户已调整过则保留布局）
+    setTimeout(() => l2d.resize(), 30);
+    refreshComposer();
+  });
+  document.getElementById('btn-idle').addEventListener('click', () => {
+    // 手动触发一条待机台词（即使托盘里关掉了"自动随机待机"也可用）
+    if (l2d.forceIdleLine) l2d.forceIdleLine();
+  });
+  document.getElementById('btn-glass').addEventListener('click', () => {
+    const on = frameEl && frameEl.classList.contains('glass-mode');
+    applyBackground(!on, true);
+  });
+  document.getElementById('btn-lock').addEventListener('click', () => {
+    if (window.desktopPet) window.desktopPet.lockModel(!l2d.locked);
+  });
+  document.getElementById('btn-reset').addEventListener('click', () => {
+    if (window.desktopPet) window.desktopPet.resetTransform();
+  });
+  document.getElementById('btn-settings').addEventListener('click', () => {
+    // 打开设置窗口（与托盘菜单「设置」同一入口）；隐藏窗口改由托盘菜单「隐藏」完成
+    if (window.desktopPet && window.desktopPet.openSettings) window.desktopPet.openSettings();
+  });
+
+  // 界面字体：把字号/字体族应用到整个窗口（CSS 变量驱动，所有文字统一跟随）
+  function applyUIFont(state) {
+    if (!state) return;
+    const root = document.documentElement;
+    const size = (typeof state.fontSize === 'number') ? state.fontSize : 14;
+    const scale = size / 14;                       // 设计基准 14px
+    root.style.setProperty('--ui-scale', String(scale));
+    const fam = (typeof state.fontFamily === 'string' && state.fontFamily) ? state.fontFamily : '';
+    // 空串 -> 清掉变量，回退到 :root 的默认字体族（系统默认）
+    if (fam) root.style.setProperty('--ui-font-family', fam);
+    else root.style.removeProperty('--ui-font-family');
+  }
+
+  // 主进程（托盘）下发的指令
+  if (window.desktopPet) {
+    window.desktopPet.onApplyLock((v) => l2d.setLocked(v));
+    window.desktopPet.onApplyReset(() => l2d.resetTransform());
+    // 口型调试（托盘"口型调试"子菜单）：实时切换元音参数族 / OpenY 驱动 / Silence 极性
+    window.desktopPet.on('pet:setVowelFamily', (fam) => { if (l2d.setVowelFamily) l2d.setVowelFamily(fam); });
+    window.desktopPet.on('pet:setDriveOpenY', (v) => { if (l2d.setDriveOpenY) l2d.setDriveOpenY(v); });
+    window.desktopPet.on('pet:setSilenceSpeaking', (v) => { if (l2d.setSilenceSpeaking) l2d.setSilenceSpeaking(v); });
+    // 表情情绪总开关（托盘下发）
+    window.desktopPet.on('pet:setEmotionEnabled', (v) => { if (l2d.setEmotionEnabled) l2d.setEmotionEnabled(v); });
+    // 参数调试面板：托盘点击后主进程发来开/关指令，这里转交 loader 启动/停止全参数上报
+    window.desktopPet.on('pet:setDebugMode', (v) => { if (l2d.setDebugMode) l2d.setDebugMode(v); });
+    // 界面字体（托盘"界面字体"子菜单）：实时切换全窗口字号/字体族
+    window.desktopPet.on('pet:setUIFont', (state) => { applyUIFont(state); });
+    // 屏幕运动追踪：托盘菜单勾选后主进程下发开/关，这里转发给追踪器实启停
+    window.desktopPet.on('pet:setScreenTrack', (v) => {
+      if (window.__screenTracker) window.__screenTracker.setEnabled(!!v);
+    });
+    // 屏幕运动追踪：设置窗调整灵敏度等子参数时实时下发，追踪器立即生效（无需重启）
+    window.desktopPet.on('pet:setScreenTrackParams', (p) => {
+      if (window.__screenTracker && window.__screenTracker.setParams) window.__screenTracker.setParams(p || {});
+    });
+    // 屏幕运动追踪：设置窗切换要追踪的显示器后实时下发，追踪器重启采集以应用新源
+    window.desktopPet.on('pet:setScreenTrackScreen', (idx) => {
+      if (window.__screenTracker && window.__screenTracker.setScreen) window.__screenTracker.setScreen(idx);
+    });
+    // 鼠标追踪总开关：设置窗/托盘切换后实时下发，立即生效（无需重启）
+    window.desktopPet.on('pet:setMouseFollow', (v) => {
+      if (l2d && l2d.setMouseFollow) l2d.setMouseFollow(!!v);
+    });
+    // 视线/头部跟随参数：设置窗调整"视线跟随"标签页后实时下发，渲染进程立即应用（无需重启）
+    window.desktopPet.on('pet:setGazeCfg', (cfg) => {
+      if (l2d && l2d.setGazeCfg) l2d.setGazeCfg(cfg || {});
+    });
+    // 设置窗请求音频设备列表（其自身未获媒体授权，拿不到设备名，故由主窗枚举后上报）
+    window.desktopPet.on('pet:requestAudioDevices', () => { reportAudioDevicesToMain(); });
+    // 音律识别：设置窗/托盘切换后实时下发，立即启停系统音频采集与跟拍
+    window.desktopPet.on('pet:setMusic', (v) => {
+      if (l2d && l2d.setMusicEnabled) l2d.setMusicEnabled(!!v);
+      if (window.__musicTracker) window.__musicTracker.setEnabled(!!v);
+      // 开启后延迟再枚举一次：拿到媒体授权后 enumerateDevices 才会返回真实设备名，
+      // 否则设置窗的下拉里全是"输入设备 xxxxx"这种占位名。
+      if (v) setTimeout(reportAudioDevicesToMain, 1500);
+    });
+    // 音律识别参数（闭眼程度/点头幅度/灵敏度）：设置窗调整后实时下发，追踪器立即生效
+    window.desktopPet.on('pet:setMusicCfg', (cfg) => {
+      if (window.__musicTracker && window.__musicTracker.setParams) window.__musicTracker.setParams(cfg || {});
+    });
+    // 模型参数列表：设置窗打开时若缓存尚未就绪，主进程请主窗口补报一次
+    window.desktopPet.on('pet:requestModelParams', () => {
+      reportModelParamsToMain(l2d);
+    });
+    // 素材清单：设置窗打开「表情与动作」分页时若缓存为空，主窗口补报一次
+    window.desktopPet.on('pet:requestModelAssets', () => {
+      if (l2d && l2d.refreshModelAssets) { try { l2d.refreshModelAssets(); } catch (e) {} }
+    });
+    // 换模型（设置页选模型 / 改注入配置）：热重载模型，不重启程序
+    window.desktopPet.on('pet:setModel', (url) => { reloadModel(url); });
+    // 台词档内容或"模型→台词档"映射变了：重读台词池并热替换（不必重启）
+    window.desktopPet.on('pet:reloadLines', async () => {
+      await loadConfig();
+      await loadLineProfile();
+      startIdleChat();
+      if (l2d.setIdleEnabled) l2d.setIdleEnabled(idleOn);
+    });
+    // 触发绑定 / 快捷键范围变了：重新装载绑定（全局热键由主进程注册，这里只管窗口内）
+    window.desktopPet.on('pet:setBindings', (A) => {
+      window.__companionConfig = window.__companionConfig || {};
+      window.__companionConfig.assets = A || {};
+      loadBindings();
+    });
+    // 手动触发 / 主进程全局热键：播放指定绑定
+    window.desktopPet.on('pet:triggerAsset', (id) => {
+      if (!window.__playAssetById(id)) {
+        if (window.desktopPet.log) window.desktopPet.log('[assets] 未找到绑定：' + id);
+      }
+    });
+  }
+
+  window.addEventListener('resize', () => l2d.resize());
+
+  // 快捷键 Ctrl+Shift+M：切换屏幕运动追踪（与托盘菜单同效，并回传状态同步勾选）
+  // 另外：绑定在「表情与动作」里的快捷键，当范围为"仅桌宠窗口内"时由这里分发；
+  // 范围为"全局"时由主进程 globalShortcut 注册并回发 pet:triggerAsset。
+  window.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.shiftKey && (e.key === 'M' || e.key === 'm')) {
+      e.preventDefault();
+      if (window.__screenTracker) window.__screenTracker.toggle();
+      return;
+    }
+    if (hotkeyScope !== 'window') return;
+    // 输入框里打字时不抢键（否则数字/字母热键根本没法输入）
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    for (const b of bindings) {
+      if (bindingMatchesHotkey(b, e)) { e.preventDefault(); playBinding(b); return; }
+    }
+  });
+
+  // ---------------------------------------------------------------- 启动
+  (async function boot() {
+    await loadConfig();
+    applyUIFont(window.__companionConfig);   // 启动时按 config.json 当前值应用字号/字体（兜底）
+    await loadLineProfile();                 // 台词档：按 config.lineProfile 的模型绑定决定用哪一份
+    l2d.onLockChange = updateLockButton;
+    initBackground();
+    initVolume();
+    autoGrow();
+    initLive2D();
+
+    // 首次打开写入一句问候；之后每次启动只留一行简短的就绪提示。
+    let greeted = null;
+    try { greeted = localStorage.getItem(GREETING_KEY); } catch (e) { /* 忽略 */ }
+    if (!greeted) {
+      addSystem('▎神经链路已同步\n\n渲染核心在线，口型与呼吸同步模块已加载。\n待机中，请下达指令。');
+      try { localStorage.setItem(GREETING_KEY, '1'); } catch (e) { /* 忽略 */ }
+    } else {
+      addSystem('渲染核心已挂载 · 正在建立链路…');
+    }
+
+    if (CONFIG.autoConnectChat !== false) {
+      tryConnect();
+    } else {
+      setStatus('未连接（autoConnectChat=false）');
+    }
+  })();
+})();

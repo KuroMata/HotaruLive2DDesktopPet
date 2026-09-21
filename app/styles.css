@@ -1,0 +1,583 @@
+/* ============================================================
+   Live2D Companion — 赛博朋克 / 霓虹玻璃主题
+   配色：青色(--neon)主、紫(--neon-3)过渡、品红(--neon-2)辅，
+   统一用于窗口灯带、模型描边、滚动条、按钮。
+
+   针对"硬边缘"的处理（逐条对应一次实测）：
+   1) 灯带 = 芯线 + 内外对称辉光。芯线是 ::before 的 mask 环形式描边
+      （渐变沿圆角连续）；辉光用 box-shadow 而不是「实心块 + blur」——
+      因为 mask 在 filter 之后生效，同一层做「blur + mask」会把模糊切回细线，
+      而不做 mask 的实心块 blurred 之后又会把整窗填成一块渐变色板（踩过两次）。
+      实测发现只加外侧 box-shadow 时，辉光呈"外强内空"：外侧紧邻处 α≈95，
+      内侧紧邻处只有 α≈24，于是那条管子读起来是"一条硬线"。
+      所以这里补足 inset 辉光（5/14/30/64px 四层），让内外衰减对称。
+      注意别再往这里加"等宽弱环"（曾用 ::after 做过鞘层）：等宽环的内外边界
+      本身就是新的硬边，实测留下 16% / 9% 的 α 台阶，反而更糟。
+   4) 外发光的"刀口"：光晕在窗口矩形处被硬切。根治办法只能是**留够空间**——
+      见 --gap 的注释（实测 28px 时切口归零）。若要加大发光模糊半径，
+      必须同步加大 --gap，否则那道直边会重新出现。
+   2) 模型舞台铺满整个窗体，四周 24px 渐隐（多段 stops 近似 smoothstep）：
+      模型放大或拖到边缘时是"化开"，而不是被画布矩形切出一条直边。
+   3) 聊天面板上沿用 mask 渐隐与模型融合，去掉原来那条 1px 实线；
+      玻璃卡片再加一圈很淡的外发光，边缘不至于"到这儿就断了"。
+   ============================================================ */
+:root {
+  --neon: #00e5ff;                       /* 主霓虹色（青） */
+  --neon-2: #ff2bd6;                     /* 辅霓虹色（品红） */
+  --neon-3: #8b5cf6;                     /* 过渡紫 */
+  --neon-soft: rgba(0, 229, 255, 0.40);
+  --text: #e8eef6;
+  --text-dim: #93a0b5;
+
+  --radius: 18px;                        /* 窗体圆角 */
+  /* 窗体到窗口边缘的透明内边距。这个值不是随手定的，是实测出来的：
+     光晕在窗口矩形处会被**硬切**，切口深度 = 外发光在该处的强度。把 body 底色
+     设成平坦深灰（模拟桌面）后逐像素量"最边缘一行比桌面亮多少"：
+       gap=16px -> +3.8   （肉眼可见的一条直边）
+       gap=20px -> +1.5
+       gap=24px -> +0.4
+       gap=28px ->  0.0   ← 取这个
+       gap=32px ->  0.0   （纯粹白占屏幕）
+     所以窗口宽高在 config.json 里同步 +24px（384x564），保证窗体本身仍是 328x508。 */
+  --gap: 28px;
+
+  /* 界面字体：字号以 14px 为设计基准，--ui-scale 由渲染进程按所选字号动态设置（托盘"界面字体"菜单）；
+     字体族 --ui-font-family 默认系统字体，托盘可切换。两者驱动全窗口文字（各 font-size 用 calc(原px * var(--ui-scale))）。 */
+  --ui-scale: 1;
+  --ui-font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+
+  --glass: linear-gradient(180deg, rgba(14, 18, 28, 0.42), rgba(8, 11, 18, 0.62));
+  --glass-tint: rgba(10, 14, 22, 0.34);  /* 毛玻璃模式下的窗体贴底 */
+
+  /* 舞台四周渐隐：6 段 stops 近似 smoothstep。单段线性渐变在靠近边缘时
+     导数偏大，放大后的模型看上去仍像"被裁"，多段能显著减轻这一点。 */
+  --fade-v: linear-gradient(180deg,
+    rgba(0, 0, 0, 0) 0,
+    rgba(0, 0, 0, 0.07) 4px,
+    rgba(0, 0, 0, 0.24) 9px,
+    rgba(0, 0, 0, 0.50) 14px,
+    rgba(0, 0, 0, 0.79) 19px,
+    #000 26px,
+    #000 calc(100% - 26px),
+    rgba(0, 0, 0, 0.79) calc(100% - 19px),
+    rgba(0, 0, 0, 0.50) calc(100% - 14px),
+    rgba(0, 0, 0, 0.24) calc(100% - 9px),
+    rgba(0, 0, 0, 0.07) calc(100% - 4px),
+    rgba(0, 0, 0, 0) 100%);
+  --fade-h: linear-gradient(90deg,
+    rgba(0, 0, 0, 0) 0,
+    rgba(0, 0, 0, 0.07) 4px,
+    rgba(0, 0, 0, 0.24) 9px,
+    rgba(0, 0, 0, 0.50) 14px,
+    rgba(0, 0, 0, 0.79) 19px,
+    #000 26px,
+    #000 calc(100% - 26px),
+    rgba(0, 0, 0, 0.79) calc(100% - 19px),
+    rgba(0, 0, 0, 0.50) calc(100% - 14px),
+    rgba(0, 0, 0, 0.24) calc(100% - 9px),
+    rgba(0, 0, 0, 0.07) calc(100% - 4px),
+    rgba(0, 0, 0, 0) 100%);
+}
+
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  font-family: var(--ui-font-family);
+  font-size: calc(14px * var(--ui-scale, 1));
+  color: var(--text);
+  overflow: hidden;
+  user-select: none;
+}
+
+body {
+  display: flex;
+  padding: var(--gap);   /* 透明内边距：光晕在窗口边缘之前就已衰减，不会被切出硬边 */
+}
+
+/* ---------- 窗体：默认完全透明，只有灯带与底部玻璃面板可见 ---------- */
+#window-frame {
+  position: relative;
+  flex: 1 1 auto;
+  /* 必须是 0：flex 项的默认 min-width:auto 会让它被内容（底部那排按钮）撑宽，
+     结果整个框架超出窗口、模型也跟着偏离窗口中心（踩过）。 */
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;   /* #stage 绝对定位，聊天面板与底栏贴底 */
+  border-radius: var(--radius);
+  background: transparent;
+  isolation: isolate;
+  /* 霓虹辉光：模糊跟随圆角，且不会被自身边界裁切。
+     外侧三层 + 内侧四层（5/14/30/64px），**刻意做成对称衰减**——只做外侧时，
+     管子内侧紧邻处 α 只有 24 左右（外侧紧邻处 95），读起来就是"一条硬线"。
+     内侧三层用不同模糊半径叠加，近似出一条指数衰减的内晕。 */
+  box-shadow:
+    0 0 5px rgba(0, 229, 255, 0.45),
+    0 0 13px rgba(0, 229, 255, 0.26),
+    0 0 20px rgba(255, 43, 214, 0.14),
+    inset 0 0 5px rgba(0, 229, 255, 0.28),
+    inset 0 0 14px rgba(0, 229, 255, 0.16),
+    inset 0 0 30px rgba(0, 229, 255, 0.10),
+    inset 0 0 64px rgba(255, 43, 214, 0.06);
+  animation: tubeBreath 5.5s ease-in-out infinite;
+  transition: background-color .28s ease;
+}
+
+@keyframes tubeBreath {
+  0%, 100% {
+    box-shadow:
+      0 0 5px rgba(0, 229, 255, 0.45),
+      0 0 13px rgba(0, 229, 255, 0.26),
+      0 0 20px rgba(255, 43, 214, 0.14),
+      inset 0 0 5px rgba(0, 229, 255, 0.28),
+      inset 0 0 14px rgba(0, 229, 255, 0.16),
+      inset 0 0 30px rgba(0, 229, 255, 0.10),
+      inset 0 0 64px rgba(255, 43, 214, 0.06);
+  }
+  50% {
+    box-shadow:
+      0 0 7px rgba(0, 229, 255, 0.62),
+      0 0 17px rgba(0, 229, 255, 0.36),
+      0 0 24px rgba(255, 43, 214, 0.20),
+      inset 0 0 7px rgba(0, 229, 255, 0.40),
+      inset 0 0 18px rgba(0, 229, 255, 0.22),
+      inset 0 0 36px rgba(0, 229, 255, 0.14),
+      inset 0 0 74px rgba(255, 43, 214, 0.09);
+  }
+}
+
+/* 灯带鞘层已移除：它是一圈等宽等亮的环，内外两条边界本身就是新的硬边。
+   实测 5px/α0.20 时内边界 α 从 89 掉到 49（16%），改成 9px/α0.09 仍有
+   47→23（9%）的台阶。内晕改由 #window-frame 的四层 inset box-shadow 承担——
+   box-shadow 的模糊天然连续，这才是"没有台阶"的做法。 */
+
+
+/* 灯带芯线：mask 环形式描边（content-box 与 border-box 相减），沿圆角连续。
+   实测 Chromium 124 上 `mask` + `mask-composite: exclude` 与
+   `-webkit-mask` + `-webkit-mask-composite: xor` 都可用；两者同时写时，
+   shorthand 会重置 composite，因此 composite 必须写在最后。
+   宽度取 1.2px：再细在 1x 屏上会被抗锯齿抹成灰线，再粗就成"描边框"而非灯管。 */
+#window-frame::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.2px;
+  background: linear-gradient(145deg, var(--neon), var(--neon-3) 46%, var(--neon-2) 88%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* 毛玻璃模式：半透明磨砂贴底 + 顶部光泽，可透出下方窗口。
+   这里刻意用 background-color / background-image 长写，不用 background 简写：
+   简写里混入 var() 时，一旦替换结果被判为不合法，整条声明会在"计算值阶段"失效
+   （连 background-color 一起回到透明）。
+   另外这里不加 backdrop-filter：窗体是最外层容器，页面内它背后没有内容可采样，
+   透明窗口背后的桌面又不在页面的 backdrop 里，加了只是白耗一次合成。
+   （真正需要模糊的是聊天面板/底栏——它们背后是模型，那两处保留了 backdrop-filter。）*/
+#window-frame.glass-mode {
+  background-color: var(--glass-tint);
+  background-image:
+    radial-gradient(120% 55% at 50% -8%, rgba(0, 229, 255, 0.12), transparent 62%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 32%);
+}
+
+/* ---------- 模型舞台（铺满整个窗体，模型可拖到任意位置） ---------- */
+#stage {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  overflow: hidden;
+  /* 上下渐隐：多段 stops 近似 smoothstep，放大后的模型是"化开"而不是"被切" */
+  -webkit-mask-image: var(--fade-v);
+  mask-image: var(--fade-v);
+}
+
+#live2d {
+  width: 100%;
+  height: 100%;
+  cursor: move;
+  /* 左右渐隐（与 #stage 的上下渐隐叠加成矩形渐隐框，无需 mask-composite） */
+  -webkit-mask-image: var(--fade-h);
+  mask-image: var(--fade-h);
+}
+
+#live2d canvas {
+  display: block;
+  touch-action: none;
+  cursor: inherit;
+  /* 模型描边：沿轮廓的亮边 + 同色系外发光。
+     原来第一层是 2px / α0.85 的近白色 drop-shadow —— 那在模型边缘就是一条
+     细亮线，放大后非常像"硬描边"。改成 3px / α0.62 并压低后两层，
+     让最内层本身也是一段渐变，整体读作"雾状霓虹",而不是"勾线"。 */
+  filter:
+    drop-shadow(0 0 3px rgba(205, 248, 255, 0.62))
+    drop-shadow(0 0 10px rgba(0, 229, 255, 0.36))
+    drop-shadow(0 0 22px rgba(255, 43, 214, 0.13));
+}
+
+#live2d-hint {
+  position: absolute;
+  left: 50%;
+  top: 44%;
+  transform: translate(-50%, -50%);
+  font-size: calc(12px * var(--ui-scale, 1));
+  color: var(--text-dim);
+  text-align: center;
+  max-width: 80%;
+  line-height: 1.6;
+}
+
+/* 待机台词气泡：模型头顶上方的霓虹对话泡，随机播放时浮现，自动淡出。
+   不进聊天记录，独立浮层，更贴近二游主页待机台词的感觉。 */
+#idle-bubble {
+  position: absolute;
+  left: 50%;
+  top: 30px;
+  transform: translate(-50%, 8px) scale(0.96);
+  max-width: 76%;
+  box-sizing: border-box;
+  padding: 9px 14px;
+  border-radius: 14px;
+  background: rgba(10, 14, 22, 0.72);
+  border: 1px solid var(--neon-soft);
+  box-shadow: 0 0 14px rgba(0, 229, 255, 0.28), inset 0 0 10px rgba(0, 229, 255, 0.10);
+  color: var(--text);
+  font-size: calc(13px * var(--ui-scale, 1));
+  line-height: 1.55;
+  text-align: center;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.45s ease, transform 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.4);
+  z-index: 4;
+}
+#idle-bubble.show {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+}
+/* 气泡下方小尾巴，指向模型 */
+#idle-bubble::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -7px;
+  transform: translateX(-50%);
+  width: 12px;
+  height: 12px;
+  background: rgba(10, 14, 22, 0.72);
+  border-right: 1px solid var(--neon-soft);
+  border-bottom: 1px solid var(--neon-soft);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+#drag-tip {
+  position: absolute;
+  left: 0; right: 0; top: 8px;
+  text-align: center;
+  font-size: calc(10px * var(--ui-scale, 1));
+  color: rgba(0, 229, 255, 0.55);
+  letter-spacing: 0.5px;
+  pointer-events: none;
+  transition: opacity 0.8s;
+}
+#drag-tip.faded { opacity: 0; }
+
+/* ---------- 底部玻璃面板（聊天 + 控制栏，合成一张圆角磨砂卡片） ---------- */
+#chat {
+  position: relative;
+  z-index: 3;
+  flex: 0 0 auto;
+  height: 44%;
+  /* 与灯带框内沿对齐（原来是 0 9px，浮在框内 9px）。
+     留那道缝的代价是：卡片左右各有一条竖直硬边，与灯带的圆角直边平行并列，
+     在背景上就是两条"直线"。对齐之后玻璃与灯带成为同一扇窗，
+     圆角半径也与 --radius 一致（同心圆弧）。 */
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(16px) saturate(145%);
+  backdrop-filter: blur(16px) saturate(145%);
+  /* 上沿不圆角：卡片顶边藏在 30px 渐隐里，做成圆角反而会露出半截弧线 */
+  border-radius: 0;
+  /* 顶部渐隐：面板上沿与模型之间是"融"过去的，不再有一条 1px 实线 */
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 30px, #000 100%);
+  mask-image: linear-gradient(180deg, transparent 0, #000 30px, #000 100%);
+  /* 内侧上沿的青色柔光（原来是一条 1px 实心线，那本身就是硬边） */
+  box-shadow: inset 0 6px 20px -14px rgba(0, 229, 255, 0.55);
+}
+#chat.compact { height: auto; }
+#chat.compact #messages,
+#chat.compact #status { display: none; }
+
+#messages {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 24px 10px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.msg {
+  max-width: 88%;
+  padding: 7px 10px;
+  border-radius: 10px;
+  font-size: calc(13px * var(--ui-scale, 1));
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.msg.user {
+  align-self: flex-end;
+  background: linear-gradient(135deg, var(--neon), #1b9fd6);
+  color: #04141a;
+  border-bottom-right-radius: 3px;
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.35);
+}
+.msg.assistant {
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom-left-radius: 3px;
+}
+/* 系统 / 链路提示：居中的窄条，等宽字体，弱化处理 */
+.msg.system {
+  align-self: center;
+  max-width: 94%;
+  text-align: center;
+  font-size: calc(11.5px * var(--ui-scale, 1));
+  line-height: 1.75;
+  letter-spacing: 0.3px;
+  color: #9fe6ff;
+  background: linear-gradient(180deg, rgba(0, 229, 255, 0.10), rgba(255, 43, 214, 0.06));
+  border: 1px solid rgba(0, 229, 255, 0.18);
+  border-radius: 10px;
+  padding: 8px 12px;
+  text-shadow: 0 0 8px rgba(0, 229, 255, 0.45);
+  font-family: var(--ui-font-family);
+}
+
+/* 历史回放期间的占位气泡：弱化成虚线斜体，避免被误读成真正的回复 */
+.msg.syncing {
+  color: var(--text-dim);
+  font-style: italic;
+  background: rgba(255, 255, 255, 0.04);
+  border-style: dashed;
+}
+
+#status {
+  flex: 0 0 auto;
+  font-size: calc(11px * var(--ui-scale, 1));
+  color: var(--text-dim);
+  padding: 3px 12px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#input-row {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+  padding: 8px 8px 9px;
+  max-height: 64px;            /* 约一行输入 + 发送键的高度，作为展开上限 */
+  overflow: hidden;
+  /* 抽屉收起：高度塌缩 + 下移淡出，聊天面板随之缩到最小 */
+  transition: max-height .26s ease, opacity .22s ease, transform .26s ease, padding .26s ease;
+}
+/* 抽屉收起态：输入框 + 发送键像抽屉一样向下藏起（聊天窗已收起且光标久未靠近时触发） */
+#input-row.retracted {
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  opacity: 0;
+  transform: translateY(10px);
+  pointer-events: none;
+}
+#input {
+  flex: 1 1 auto;
+  resize: none;
+  min-height: 38px;
+  height: 38px;          /* 默认一行；由 app.js 的 autoGrow 动态撑高 */
+  max-height: 140px;     /* 超过约第 6 行后内部滚动 */
+  border: 1px solid var(--neon-soft);
+  border-radius: 10px;
+  background: rgba(4, 8, 14, 0.42);
+  color: var(--text);
+  padding: 9px 11px;
+  font-size: calc(13px * var(--ui-scale, 1));
+  line-height: 1.5;
+  font-family: inherit;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+  overflow-y: hidden;
+}
+#input::placeholder { color: rgba(147, 160, 181, 0.75); }
+#input:focus {
+  border-color: var(--neon);
+  box-shadow: 0 0 12px rgba(0, 229, 255, 0.30);
+}
+#send {
+  flex: 0 0 auto;
+  border: none;
+  background: linear-gradient(135deg, var(--neon), #1b9fd6);
+  color: #04141a;
+  border-radius: 10px;
+  padding: 0 14px;
+  font-size: calc(13px * var(--ui-scale, 1));
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.35);
+  transition: box-shadow .15s, transform .1s;
+}
+#send:hover { box-shadow: 0 0 16px rgba(0, 229, 255, 0.6); }
+#send:active { transform: translateY(1px); }
+
+/* ---------- 控制栏（兼作窗口拖拽区） ---------- */
+/* 音量条：位于底栏上方的一条细玻璃带。整条 no-drag，避免拖滑块时把窗口一起拖走。 */
+#volume-bar {
+  -webkit-app-region: no-drag;
+  position: relative;
+  z-index: 3;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px 1px;
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(16px) saturate(145%);
+  backdrop-filter: blur(16px) saturate(145%);
+  font-size: calc(10px * var(--ui-scale, 1));
+  color: #9fd8e6;
+  box-shadow: inset 0 8px 14px -12px rgba(255, 255, 255, 0.10);
+}
+#volume-bar .vol-label {
+  flex: 0 0 auto;
+  color: var(--neon);
+  letter-spacing: 0.5px;
+  text-shadow: 0 0 6px var(--neon-soft);
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: color .15s, text-shadow .15s;
+}
+#volume-bar .vol-label:hover { text-shadow: 0 0 10px var(--neon); }
+#volume-bar .vol-label.muted {
+  color: #6b7d8a;
+  text-shadow: none;
+}
+#volume-bar input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 14px;
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  outline: none;
+  cursor: pointer;
+}
+#volume-bar input[type="range"]::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--neon) 0%, var(--neon) var(--vol-pct, 10%), rgba(0, 229, 255, 0.18) var(--vol-pct, 10%), rgba(0, 229, 255, 0.18) 100%);
+}
+#volume-bar input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 11px;
+  height: 11px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: var(--neon);
+  box-shadow: 0 0 8px var(--neon);
+}
+#volume-bar #vol-num {
+  flex: 0 0 auto;
+  min-width: 20px;
+  text-align: right;
+  color: #cfefff;
+}
+
+#bottom-bar {
+  -webkit-app-region: drag;
+  position: relative;
+  z-index: 3;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  /* 品牌字已移除；按钮在整条底栏上均匀分布，窗口加宽后不会留下半条空玻璃 */
+  justify-content: space-between;
+  gap: 4px;
+  padding: 7px 8px 8px;
+  /* 与 #chat 同样对齐到灯带框内沿；底部圆角用 --radius，
+     与灯带的圆角同心（同心圆弧的半径差应等于两者的间距，这里间距为 0）。 */
+  margin: 0;
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(16px) saturate(145%);
+  backdrop-filter: blur(16px) saturate(145%);
+  border-radius: 0 0 var(--radius) var(--radius);
+  /* 上沿原来是 1px 实心高光，那本身就是一条硬线；换成 8px 的柔和高光 */
+  box-shadow: inset 0 8px 14px -12px rgba(255, 255, 255, 0.10);
+  overflow: hidden;   /* 宁可裁掉品牌名的尾巴，也不让按钮溢出框架 */
+}
+#bottom-bar button {
+  -webkit-app-region: no-drag;
+  flex: 0 0 auto;      /* 按钮不参与压缩，保证 6 个都完整可见 */
+  border: 1px solid var(--neon-soft);
+  background: rgba(0, 229, 255, 0.08);
+  color: #cfefff;
+  font-size: calc(10px * var(--ui-scale, 1));
+  padding: 4px 7px;
+  border-radius: 999px;
+  cursor: pointer;
+  text-shadow: 0 0 4px rgba(0, 229, 255, 0.4);
+  transition: background .15s, box-shadow .15s, color .15s;
+  white-space: nowrap;
+}
+#bottom-bar button:hover {
+  background: rgba(0, 229, 255, 0.20);
+  box-shadow: 0 0 10px var(--neon-soft);
+}
+#bottom-bar button.active {
+  background: var(--neon);
+  color: #04141a;
+  border-color: var(--neon);
+  box-shadow: 0 0 12px var(--neon);
+  text-shadow: none;
+}
+/* 锁定后：底栏不再是窗口拖拽区，避免误拖窗口位置（锁定开关本身仍是 no-drag 按钮） */
+#bottom-bar.locked-win {
+  -webkit-app-region: no-drag;
+}
+
+/* ---------- 统一滚动条（青色霓虹细条，匹配玻璃面板） ---------- */
+#messages::-webkit-scrollbar,
+#input::-webkit-scrollbar { width: 6px; }
+#messages::-webkit-scrollbar-track,
+#input::-webkit-scrollbar-track { background: transparent; }
+#messages::-webkit-scrollbar-thumb,
+#input::-webkit-scrollbar-thumb {
+  background: linear-gradient(var(--neon), var(--neon-2));
+  border-radius: 3px;
+  box-shadow: 0 0 6px rgba(0, 229, 255, 0.45);
+}
+#messages::-webkit-scrollbar-thumb:hover,
+#input::-webkit-scrollbar-thumb:hover { background: var(--neon); }
+#messages::-webkit-scrollbar-corner,
+#input::-webkit-scrollbar-corner { background: transparent; }

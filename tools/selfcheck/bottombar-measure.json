@@ -1,0 +1,419 @@
+{
+  "note": "品牌字已移除；宽度单位 px；scale18 = config 当前 uiFontSize=18",
+  "w384": {
+    "base6": {
+      "windowW": 384,
+      "frameW": 328,
+      "barW": 328,
+      "contentW": 312,
+      "gap": 4,
+      "nButtons": 6,
+      "items": [
+        {
+          "tag": "BUTTON",
+          "text": "聊天",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "待机",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "透明",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "锁定",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "重置",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "设置",
+          "w": 41.7
+        }
+      ],
+      "itemsSum": 250.2,
+      "neededW": 286.2,
+      "freeW": 41.8,
+      "overflow": false
+    },
+    "plus1": {
+      "windowW": 384,
+      "frameW": 328,
+      "barW": 328,
+      "contentW": 312,
+      "gap": 4,
+      "nButtons": 7,
+      "items": [
+        {
+          "tag": "BUTTON",
+          "text": "聊天",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "待机",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "透明",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "锁定",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "重置",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "设置",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "设置",
+          "w": 41.7
+        }
+      ],
+      "itemsSum": 291.9,
+      "neededW": 331.9,
+      "freeW": -3.9,
+      "overflow": true
+    },
+    "plus2": {
+      "windowW": 384,
+      "frameW": 328,
+      "barW": 328,
+      "contentW": 312,
+      "gap": 4,
+      "nButtons": 8,
+      "items": [
+        {
+          "tag": "BUTTON",
+          "text": "聊天",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "待机",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "透明",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "锁定",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "重置",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "设置",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "设置",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "字体",
+          "w": 41.7
+        }
+      ],
+      "itemsSum": 333.6,
+      "neededW": 377.6,
+      "freeW": -49.6,
+      "overflow": true
+    },
+    "plus3": {
+      "windowW": 384,
+      "frameW": 328,
+      "barW": 328,
+      "contentW": 312,
+      "gap": 4,
+      "nButtons": 9,
+      "items": [
+        {
+          "tag": "BUTTON",
+          "text": "聊天",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "待机",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "透明",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "锁定",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "重置",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "设置",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "设置",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "字体",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "角色",
+          "w": 41.7
+        }
+      ],
+      "itemsSum": 375.3,
+      "neededW": 423.3,
+      "freeW": -95.3,
+      "overflow": true
+    }
+  },
+  "w500": {
+    "base6": {
+      "windowW": 500,
+      "frameW": 444,
+      "barW": 444,
+      "contentW": 428,
+      "gap": 4,
+      "nButtons": 6,
+      "items": [
+        {
+          "tag": "BUTTON",
+          "text": "聊天",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "待机",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "透明",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "锁定",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "重置",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "设置",
+          "w": 41.7
+        }
+      ],
+      "itemsSum": 250.2,
+      "neededW": 286.2,
+      "freeW": 157.8,
+      "overflow": false
+    },
+    "plus1": {
+      "windowW": 500,
+      "frameW": 444,
+      "barW": 444,
+      "contentW": 428,
+      "gap": 4,
+      "nButtons": 7,
+      "items": [
+        {
+          "tag": "BUTTON",
+          "text": "聊天",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "待机",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "透明",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "锁定",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "重置",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "设置",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "设置",
+          "w": 41.7
+        }
+      ],
+      "itemsSum": 291.9,
+      "neededW": 331.9,
+      "freeW": 112.1,
+      "overflow": false
+    },
+    "plus2": {
+      "windowW": 500,
+      "frameW": 444,
+      "barW": 444,
+      "contentW": 428,
+      "gap": 4,
+      "nButtons": 8,
+      "items": [
+        {
+          "tag": "BUTTON",
+          "text": "聊天",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "待机",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "透明",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "锁定",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "重置",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "设置",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "设置",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "字体",
+          "w": 41.7
+        }
+      ],
+      "itemsSum": 333.6,
+      "neededW": 377.6,
+      "freeW": 66.4,
+      "overflow": false
+    },
+    "plus3": {
+      "windowW": 500,
+      "frameW": 444,
+      "barW": 444,
+      "contentW": 428,
+      "gap": 4,
+      "nButtons": 9,
+      "items": [
+        {
+          "tag": "BUTTON",
+          "text": "聊天",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "待机",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "透明",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "锁定",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "重置",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "设置",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "设置",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "字体",
+          "w": 41.7
+        },
+        {
+          "tag": "BUTTON",
+          "text": "角色",
+          "w": 41.7
+        }
+      ],
+      "itemsSum": 375.3,
+      "neededW": 423.3,
+      "freeW": 20.7,
+      "overflow": false
+    }
+  }
+}

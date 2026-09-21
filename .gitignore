@@ -1,0 +1,71 @@
+# ============================================================
+# 黑叶萤桌宠 · Git 忽略规则
+# 目标：只让「代码 + 文档 + 配置模板」进仓库。
+# 三类东西绝不提交，原因写在每节标题里。
+# ============================================================
+
+# ---------- 依赖与运行时（体积大、可重装）----------
+node_modules/
+.electron-cache/
+audio/venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# ---------- 构建产物（可由源码重新生成）----------
+dist/
+build/*.blockmap
+_launcher_build/build/
+_launcher_build/_pyi_*
+黑叶萤桌宠.exe
+
+# ---------- 运行时状态与日志（含本机路径、窗口坐标、台词原文）----------
+*.log
+app.log
+electron_boot.log
+launcher_debug.log
+acp-port.cache.json
+window-bounds.json
+_config_release_backup.json
+
+# ---------- 本机专属 / 私人数据 ----------
+# app/config.json 含本机绝对路径（Steam 库、Python venv 位置等），
+# 用 app/config.example.json 作模板，使用者复制后自行修改。
+app/config.json
+.workbuddy/
+backup-*/
+workspace/
+nul
+
+# ============================================================
+# 以下四类请勿提交
+# ============================================================
+
+# ---------- 1. Live2D 模型：第三方版权资产，不是本项目原创。
+#               公开分发会收到 DMCA，且与你自己做的加密（防盗）意图相悖。
+#               使用者自备，目录内保留一份 README 说明放置位置。
+app/models/*
+!app/models/README.md
+
+# ---------- 2. TTS 音色参考音频：含声纹样本（ref.wav / _idx_ref.wav /
+#               _y_ref_*.wav）。声纹属生物识别信息，且音色可能来自第三方。
+tts/ref/
+
+# ---------- 3. 台词语音：由上述音色派生。若音色源自他人，
+#               生成音频同样不宜公开 —— 保持本行生效。
+#               若音色是你本人录制且允许公开，删掉下面这一行即可。
+app/data/lines/*.wav
+
+# ---------- 4. 图标原料：来源需自行确认（_icon_work 内含哈希命名的下载件）。
+#               build/ 下的 app_icon.ico 与 mac_icon.png 是成品，保留。
+_icon_work/
+
+# ---------- 临时脚本与探针输出 ----------
+tools/**/_*
+tools/pack/preflight-report.txt
+_*.txt
+*.tmp
+*.7z
+
+# 说明：app/data/*.bak 是人设台词档（affectionate / kuudere / kouhai），
+#       属于内容资产，有意保留在仓库里，故不排除 *.bak。

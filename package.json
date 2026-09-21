@@ -1,0 +1,90 @@
+{
+  "name": "live2d-companion",
+  "version": "0.2.0",
+  "description": "透明 Live2D 桌宠 + 桥接 WorkBuddy 对话（ACP 本地协议）",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --x64",
+    "dist:portable": "electron-builder --win --x64 --config.win.target=portable",
+    "dist:mac": "electron-builder --mac --publish=never"
+  },
+  "build": {
+    "appId": "com.natsumesaki.live2d-companion",
+    "productName": "黑叶萤桌宠",
+    "copyright": "Copyright © 2026",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "_icon_work/app_icon.ico",
+      "executableName": "HotaruDesktopPet",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "黑叶萤桌宠",
+      "installerIcon": "_icon_work/app_icon.ico",
+      "uninstallerIcon": "_icon_work/app_icon.ico",
+      "artifactName": "黑叶萤桌宠-Setup-${version}.exe",
+      "include": "build/installer.nsh"
+    },
+    "mac": {
+      "target": [
+        "zip"
+      ],
+      "icon": "build/mac_icon.png",
+      "executableName": "HotaruDesktopPet",
+      "category": "public.app-category.entertainment",
+      "identity": null,
+      "artifactName": "黑叶萤桌宠-${version}-mac-${arch}.zip"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json",
+      "app/**",
+      "tts/**",
+      "audio/audio_server.py",
+      "node_modules/**",
+      "!node_modules/electron{,/**}",
+      "!node_modules/electron-builder{,/**}",
+      "!node_modules/electron-publish{,/**}",
+      "!node_modules/app-builder-bin{,/**}",
+      "!node_modules/app-builder-lib{,/**}",
+      "!node_modules/builder-util{,/**}",
+      "!node_modules/builder-util-runtime{,/**}",
+      "!node_modules/dmg-builder{,/**}",
+      "!node_modules/7zip-bin{,/**}",
+      "!node_modules/typescript{,/**}",
+      "!node_modules/@types{,/**}",
+      "!tts/_out/**",
+      "!tts/ref/_idx_ref.wav",
+      "!**/*.log",
+      "!**/*.7z",
+      "!tts/_*",
+      "!tts/__pycache__/**",
+      "!audio/venv/**",
+      "!audio/__pycache__/**",
+      "!dist/**",
+      "!.git{,/**}",
+      "!.workbuddy{,/**}"
+    ],
+    "asar": false
+  },
+  "dependencies": {
+    "pinyin-pro": "^3.29.4",
+    "pixi-live2d-display": "^0.4.0",
+    "pixi.js": "^6.5.10"
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.3"
+  }
+}

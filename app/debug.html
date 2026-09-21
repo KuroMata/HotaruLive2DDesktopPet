@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<title>Live2D 参数调试面板</title>
+<style>
+  :root {
+    --bg: #1b1b1d;
+    --panel: #232427;
+    --panel2: #2b2c30;
+    --line: #38393d;
+    --txt: #e6e6e6;
+    --dim: #9aa0a6;
+    --accent: #58c4ff;
+    --chg: #ffd24a;
+    --pos: #6fcf73;
+    --neg: #f06a6a;
+    --default: #c0c4cc;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--txt);
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; font-size: 13px; }
+  #top { display: flex; align-items: baseline; gap: 10px; padding: 9px 14px; flex-wrap: wrap;
+    background: var(--panel); border-bottom: 1px solid var(--line); }
+  #title { font-weight: 600; font-size: 15px; }
+  #meta { color: var(--dim); font-size: 12px; }
+  #meta b { color: var(--txt); }
+  #meta .live { color: var(--pos); }
+  #meta .stale { color: var(--neg); }
+  #meta code { color: var(--accent); }
+  #bar { display: flex; gap: 10px; align-items: center; padding: 8px 14px; flex-wrap: wrap;
+    background: var(--panel2); border-bottom: 1px solid var(--line); }
+  #filter { flex: 1; min-width: 180px; background: #161618; border: 1px solid var(--line); color: var(--txt);
+    padding: 6px 10px; border-radius: 6px; outline: none; }
+  #filter:focus { border-color: var(--accent); }
+  #only { display: flex; align-items: center; gap: 6px; color: var(--dim); cursor: pointer; user-select: none; }
+  #copyBtn { background: var(--panel); color: var(--txt); border: 1px solid var(--line);
+    padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  #copyBtn:hover { border-color: var(--accent); color: var(--accent); }
+  .hint { color: var(--dim); font-size: 11px; }
+  #wrap { position: absolute; top: 104px; left: 0; right: 0; bottom: 0; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th { position: sticky; top: 0; background: var(--panel); color: var(--dim);
+    text-align: left; padding: 7px 10px; font-weight: 500; border-bottom: 1px solid var(--line); z-index: 1; }
+  tbody tr { border-bottom: 1px solid #2a2a2b; }
+  tbody tr.chg { background: rgba(255, 210, 74, 0.10); }
+  tbody tr:hover { background: #2a2a2b; }
+  td { padding: 5px 10px; vertical-align: middle; }
+  td.idx { color: var(--dim); width: 42px; text-align: right; }
+  td.name { font-family: "Sarasa Mono SC", "Cascadia Code", Consolas, monospace;
+    color: var(--accent); max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  td.val { font-family: Consolas, monospace; width: 88px; text-align: right; }
+  td.val.chg { color: var(--chg); font-weight: 700; }
+  td.val.off { color: var(--dim); }
+  td.rng, td.dft { color: var(--dim); width: 124px; font-family: Consolas, monospace; }
+  td.viz { width: auto; min-width: 160px; }
+  .track { position: relative; height: 14px; background: #121214; border-radius: 3px; overflow: hidden; }
+  .fill { position: absolute; top: 0; bottom: 0; background: var(--pos); transition: width .08s linear; }
+  .fill.neg { background: var(--neg); }
+  .def { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--default); opacity: .9; }
+  #empty { padding: 22px 14px; color: var(--dim); line-height: 1.8; }
+  #empty b { color: var(--txt); }
+  #empty .err { color: var(--neg); }
+  #empty code { color: var(--accent); }
+</style>
+</head>
+<body>
+  <div id="top">
+    <span id="title">Live2D 参数调试面板</span>
+    <span id="meta">等待数据…</span>
+  </div>
+  <div id="bar">
+    <input id="filter" type="text" placeholder="过滤参数名（支持子串，如 Mouth / Silence / ParamA）" />
+    <label id="only"><input id="onlyChk" type="checkbox" /> 仅显示非默认</label>
+    <button id="copyBtn">复制当前列表</button>
+    <span class="hint">约 10 帧/秒；黄色=本帧有变化；竖线=模型默认值；顺序同模型声明顺序。先过滤再复制，可直接把文本发出来排查。</span>
+  </div>
+  <div id="wrap">
+    <table>
+      <thead><tr><th>#</th><th>参数名</th><th>当前值</th><th>范围 (min … max)</th><th>默认值</th><th>可视化</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div id="empty">等待第一个参数快照…</div>
+  </div>
+
+  <script>
+    const rowsEl = document.getElementById('rows');
+    const metaEl = document.getElementById('meta');
+    const emptyEl = document.getElementById('empty');
+    const filterEl = document.getElementById('filter');
+    const onlyChk = document.getElementById('onlyChk');
+
+    let rowMap = {};       // id -> { tr, def, mn, mx, v }
+    let order = [];        // 当前行的 id 顺序（模型声明顺序）
+    let rowKey = '';       // 行集合指纹，变了才重建（行常驻，不随每帧重绘 → 不抖、不丢滚动）
+    let prev = {};         // id -> 上一帧值
+    let lastT = 0;
+    let lastSeq = 0;
+    let lastMode = '';     // 枚举方式（core.getModel().parameters / ByIndex / getParameterIds）
+    let flashT = {};       // id -> 高亮超时句柄
+
+    const f3 = (x) => (typeof x === 'number' && !isNaN(x)) ? x.toFixed(3) : '-';
+    const f2 = (x) => (typeof x === 'number' && !isNaN(x)) ? x.toFixed(2) : '-';
+
+    // 是否等于默认值（优先用模型真实默认值 d，取不到才退回区间中点）
+    function isDefault(r) {
+      const span = Math.abs(r.mx - r.mn) || 1;
+      const def = (typeof r.d === 'number' && !isNaN(r.d)) ? r.d : (r.mn + r.mx) / 2;
+      return Math.abs(r.v - def) < span * 0.02 + 1e-4;
+    }
+
+    function buildRows(rows) {
+      rowsEl.innerHTML = '';
+      rowMap = {};
+      order = [];
+      rows.forEach((r, i) => {
+        const tr = document.createElement('tr');
+        const idxTd = document.createElement('td'); idxTd.className = 'idx'; idxTd.textContent = (i + 1);
+        const nameTd = document.createElement('td'); nameTd.className = 'name'; nameTd.textContent = r.id; nameTd.title = r.id;
+        const valTd = document.createElement('td'); valTd.className = 'val'; valTd.textContent = f3(r.v);
+        const rngTd = document.createElement('td'); rngTd.className = 'rng';
+        const dftTd = document.createElement('td'); dftTd.className = 'dft';
+        const vizTd = document.createElement('td'); vizTd.className = 'viz';
+        const track = document.createElement('div'); track.className = 'track';
+        const fill = document.createElement('div'); fill.className = 'fill'; fill.style.width = '0%';
+        const def = document.createElement('div'); def.className = 'def'; def.style.left = '50%';
+        track.appendChild(fill); track.appendChild(def);
+        vizTd.appendChild(track);
+        tr.appendChild(idxTd); tr.appendChild(nameTd); tr.appendChild(valTd);
+        tr.appendChild(rngTd); tr.appendChild(dftTd); tr.appendChild(vizTd);
+        tr._ref = { valEl: valTd, fillEl: fill, defEl: def, rngEl: rngTd, dftEl: dftTd };
+        rowsEl.appendChild(tr);
+        rowMap[r.id] = { tr: tr, def: 0, mn: 0, mx: 1, v: 0 };
+        order.push(r.id);
+      });
+      rowKey = rows.map((r) => r.id).join('\u0001');
+    }
+
+    function updateRows(rows) {
+      // 行集合变化才重建（顺序也纳入判定，保持与模型声明顺序一致）
+      const key = rows.map((r) => r.id).join('\u0001');
+      if (key !== rowKey) buildRows(rows);
+
+      for (const r of rows) {
+        const cell = rowMap[r.id];
+        if (!cell) continue;
+        const ref = cell.tr._ref;
+        const span = (r.mx - r.mn) || 1;
+        const def = (typeof r.d === 'number' && !isNaN(r.d)) ? r.d : (r.mn + r.mx) / 2;
+        cell.def = def; cell.mn = r.mn; cell.mx = r.mx; cell.v = r.v;
+        ref.valEl.textContent = f3(r.v);
+        ref.valEl.classList.toggle('off', isDefault(r));
+        ref.rngEl.textContent = f2(r.mn) + ' … ' + f2(r.mx);
+        ref.dftEl.textContent = f2(def);
+        // 默认值刻度（Viewer 式）
+        const defPct = Math.max(0, Math.min(100, ((def - r.mn) / span) * 100));
+        ref.defEl.style.left = defPct.toFixed(1) + '%';
+        // 填充条：从 min 到当前值
+        let pct = ((r.v - r.mn) / span) * 100;
+        const neg = pct < 0;
+        pct = Math.max(0, Math.min(100, Math.abs(pct)));
+        ref.fillEl.className = 'fill' + (neg ? ' neg' : '');
+        ref.fillEl.style.width = pct.toFixed(1) + '%';
+        // 变化高亮（黄闪一下）
+        const changed = prev[r.id] !== undefined && Math.abs(prev[r.id] - r.v) > 1e-4;
+        if (changed) {
+          cell.tr.classList.add('chg');
+          if (flashT[r.id]) clearTimeout(flashT[r.id]);
+          flashT[r.id] = setTimeout(() => { cell.tr.classList.remove('chg'); }, 240);
+          ref.valEl.classList.add('chg');
+          setTimeout(() => { ref.valEl.classList.remove('chg'); }, 240);
+        }
+      }
+      prev = {};
+      for (const r of rows) prev[r.id] = r.v;
+      applyFilter();
+    }
+
+    function applyFilter() {
+      const f = filterEl.value.trim().toLowerCase();
+      const onlyNon = onlyChk.checked;
+      let shown = 0;
+      for (const id of order) {
+        const cell = rowMap[id];
+        if (!cell) continue;
+        let disp = 'table-row';
+        if (f && id.toLowerCase().indexOf(f) < 0) disp = 'none';
+        else if (onlyNon && isDefault(cell)) disp = 'none';
+        if (disp !== 'none') shown++;
+        cell.tr.style.display = disp;
+      }
+      const stale = (Date.now() - lastT) > 900;
+      metaEl.innerHTML = '枚举方式 <code>' + (lastMode || '-') + '</code>' +
+        ' · 参数 <b>' + order.length + '</b> · 显示 <b>' + shown + '</b> · 帧 <b>' + lastSeq + '</b> · ' +
+        '<span class="' + (stale ? 'stale' : 'live') + '">' + (lastT ? (stale ? '停滞' : '实时') : '未连接') + '</span>';
+    }
+
+    function onSnapshot(snap) {
+      lastT = Date.now();
+      lastSeq = (snap && snap.seq) || (lastSeq + 1);
+      lastMode = (snap && snap.mode) || '';
+      if (!snap || snap.open === false) {
+        rowMap = {}; prev = {}; order = []; rowKey = ''; rowsEl.innerHTML = '';
+        emptyEl.style.display = 'block';
+        emptyEl.textContent = '已断开：渲染进程停止了参数上报。';
+        metaEl.innerHTML = '未连接';
+        return;
+      }
+      const rows = snap.rows || [];
+      if (!rows.length) {
+        // 链路是通的（收到帧了），但没有参数 —— 把具体原因摆出来，不再只显示"尚未收到"
+        rowMap = {}; prev = {}; order = []; rowKey = ''; rowsEl.innerHTML = '';
+        emptyEl.style.display = 'block';
+        emptyEl.innerHTML = '<b>已收到快照（帧 ' + lastSeq + '，枚举方式 <code>' + (snap.mode || 'none') + '</code>），但参数列表为空。</b><br>' +
+          '<span class="err">' + (snap.err || '未返回任何参数。') + '</span><br>' +
+          '排查：① 模型是否已加载完成（主窗口出现模型）；② app.log 里搜 <code>[debug]</code> 看枚举结论。';
+        applyFilter();
+        return;
+      }
+      emptyEl.style.display = 'none';
+      updateRows(rows);
+    }
+
+    if (window.desktopPet && window.desktopPet.on) {
+      window.desktopPet.on('debug:params', onSnapshot);
+    } else {
+      metaEl.textContent = 'desktopPet 不可用（preload 未挂载）';
+    }
+    filterEl.addEventListener('input', applyFilter);
+    onlyChk.addEventListener('change', applyFilter);
+
+    // 一键复制"当前显示的行"（受过滤框与勾选影响）——便于把参数实况贴出来排查
+    const copyBtn = document.getElementById('copyBtn');
+    copyBtn.addEventListener('click', async () => {
+      const lines = ['参数名\t当前值\t最小\t最大\t默认值'];
+      for (const id of order) {
+        const c = rowMap[id];
+        if (!c || c.tr.style.display === 'none') continue;
+        lines.push([id, f3(c.v), f2(c.mn), f2(c.mx), f2(c.def)].join('\t'));
+      }
+      if (lines.length === 1) { copyBtn.textContent = '没有可复制的行'; }
+      else {
+        try { await navigator.clipboard.writeText(lines.join('\n')); copyBtn.textContent = '已复制 ' + (lines.length - 1) + ' 行'; }
+        catch (e) { copyBtn.textContent = '复制失败（可手动截图）'; }
+      }
+      setTimeout(() => { copyBtn.textContent = '复制当前列表'; }, 1800);
+    });
+
+    setInterval(() => { if (lastT) applyFilter(); }, 600);
+  </script>
+</body>
+</html>
