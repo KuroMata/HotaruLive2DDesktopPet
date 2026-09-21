@@ -14,10 +14,10 @@
   const GLASS_KEY = 'l2d-bg-glass-v1';
 
   let CONFIG = {};
-  let bridge = null;
-  let connected = false;
-  let connecting = null;     // 进行中的连接 Promise（避免重复连接）
-  let retryTimer = null;
+  let persona = null;        // 人设（app/data/persona.json，三种大脑共用）
+  let brain = null;          // 当前聊天后端实例
+  let brainKind = 'cloud';   // local | cloud | workbuddy
+  let connected = false;     // 当前后端是否探活成功
   let bootAttempts = 0;
   let acpPort = 0;           // 主进程自动发现的 ACP 端口（仅用于状态栏展示）
   const l2d = new window.Live2DController();
@@ -36,10 +36,33 @@
     inputEl.style.overflowY = inputEl.scrollHeight > max ? 'auto' : 'hidden';
   }
 
+  // 只改气泡正文，保留「停止思考」按钮等兄弟节点不被 textContent 清掉
+  function setBubbleText(bubble, text) {
+    const t = bubble.querySelector('.bubble-text');
+    if (t) t.textContent = text;
+    else bubble.textContent = text;
+  }
+
   function addMsg(role, text) {
     const div = document.createElement('div');
     div.className = 'msg ' + role;
-    div.textContent = text;
+    const t = document.createElement('span');
+    t.className = 'bubble-text';
+    t.textContent = text;
+    div.appendChild(t);
+    if (role === 'assistant') {
+      // 鼠标悬停到正在生成的气泡时才浮现的「停止思考」
+      const stop = document.createElement('span');
+      stop.className = 'stop-think';
+      stop.textContent = '停止思考';
+      stop.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        if (div.classList.contains('generating') && brain && typeof brain.abort === 'function') {
+          brain.abort();
+        }
+      });
+      div.appendChild(stop);
+    }
     messagesEl.appendChild(div);
     messagesEl.scrollTop = messagesEl.scrollHeight;
     return div;
@@ -678,67 +701,115 @@
       if (v && v.display) displayLang = v.display;
       if (v && v.voice) voiceLang = v.voice;
     });
+    // 主进程的选择窗决定用哪个大脑；warm=true 时顺带预热（本地模型要加载权重）
+    window.desktopPet.on('pet:setBrain', (v) => {
+      const kind = (v && v.backend) || brainKind;
+      rebuildBrain(kind, !!(v && v.warm));
+    });
+    // 人设被改：换提示词并清空历史，让新人格从下一句开始生效
+    window.desktopPet.on('pet:setPersona', (p) => {
+      persona = p || persona;
+      if (brain) rebuildBrain(brainKind, false);
+    });
   }
 
-  // ---------------------------------------------------------------- 链路
-  function makeBridge() {
-    if (bridge) return bridge;
-    // 默认走主进程同源代理（避开跨域导致的 "Failed to fetch"）。
-    // 代理模式下端口由主进程自动发现，页面不用关心；
-    // 只有把 useAcpProxy 设为 false 时才直连 acpBaseUrl（需上游配了 CORS）。
-    const base = CONFIG.useAcpProxy === false ? (CONFIG.acpBaseUrl || '') : '';
-    bridge = new window.WorkBuddyBridge(base, { cwd: CONFIG.acpCwd || '.' });
-    return bridge;
+  // ---------------------------------------------------------------- 聊天大脑
+  // 三种后端（本地 Ollama / 云端 OpenAI 兼容 / WorkBuddy ACP）对外同一组方法，
+  // 由主进程的选择窗决定用哪个（pet:setBrain 下发），这里只按当前选择建实例。
+  function brainLabel(k) {
+    return ({ local: '本地模型', cloud: '云端接口', workbuddy: 'WorkBuddy' })[k] || '云端接口';
   }
 
-  // 已建立的链路状态文案（带上主进程自动发现的 ACP 端口，便于排查）
-  function linkedStatus() {
-    return '链路已建立 · WorkBuddy ACP 在线' + (acpPort ? '（端口 ' + acpPort + '）' : '');
+  function brainCfg() {
+    const c = CONFIG.chat || {};
+    return {
+      persona: persona || {},
+      local: c.local || {},
+      cloud: c.cloud || {},
+      workbuddy: { cwd: (c.workbuddy && c.workbuddy.cwd) || CONFIG.acpCwd || '.' },
+      timeoutMs: (typeof c.thinkTimeoutMs === 'number') ? c.thinkTimeoutMs : 15000
+    };
   }
 
-  async function connectNow() {
-    const b = makeBridge();
-    if (b.proxied) {
-      const h = await b.health();
-      if (!h.ok) throw new Error(h.message || 'WorkBuddy 本地服务未就绪');
-      acpPort = h.port || 0;   // 主进程自动发现出来的端口
+  // 建（或重建）后端。warm=true 时顺手预热——本地模型要把几 GB 权重装进显存，
+  // 第一次不预热的话，用户开口后要干等十几秒才出第一个字。
+  async function applyBrain(kind, warm) {
+    brainKind = (kind === 'local' || kind === 'workbuddy') ? kind : 'cloud';
+    brain = window.ChatBackends.create(brainKind, brainCfg());
+    connected = false;
+    setStatus('正在检查「' + brainLabel(brainKind) + '」…');
+    let p;
+    try { p = await brain.probe((t) => setStatus(t)); }
+    catch (e) { p = { ok: false, message: (e && e.message) || String(e) }; }
+    if (!p.ok) {
+      setStatus(brainLabel(brainKind) + ' 不可用 · ' + p.message);
+      showMessages();
+      addSystem('⚠ ' + brainLabel(brainKind) + '：' + p.message);
+      return false;
     }
-    await b.connect();
-    await b.newSession();
     connected = true;
+    setStatus(brainLabel(brainKind) + ' 就绪 · ' + p.message);
+    // 服务是我们自己拉起来的：说清楚，并告知退出时会一起关掉
+    if (p.started) {
+      showMessages();
+      addSystem('本地模型服务已启动（' + (p.elapsedMs || 0).toFixed(1) + 's）· 退出桌宠时会一并关闭。');
+    }
+    if (warm && brain.warmup) {
+      const t0 = Date.now();
+      if (brainKind === 'local') {
+        // 冷启动要把几 GB 权重读进显存，实测 30~60 秒。不说明的话会像卡死。
+        showMessages();
+        addSystem('正在把本地模型载入显存，首次约需 30~60 秒，之后是毫秒级。');
+      }
+      const w = await brain.warmup((t) => setStatus(t));
+      if (!w.ok) {
+        setStatus('载入失败：' + (w.message || '未知原因'));
+        return false;
+      }
+      const sec = ((Date.now() - t0) / 1000).toFixed(1);
+      setStatus(brainLabel(brainKind) + ' 就绪 · 载入耗时 ' + sec + 's');
+      if (brainKind === 'local') {
+        addSystem('本地模型已就绪（载入 ' + sec + ' 秒），可以说话了。');
+        notify('本地模型已就绪', '载入耗时 ' + sec + ' 秒，现在可以和她说话了。');
+      }
+    }
+    return true;
+  }
+
+  // 系统通知（加载完成这类"不在眼前"的提醒用它）。权限被拒就静默降级。
+  function notify(title, body) {
+    try {
+      if (typeof Notification === 'undefined') return;
+      if (Notification.permission === 'denied') return;
+      if (Notification.permission === 'default') Notification.requestPermission();
+      new Notification(title, { body: body || '', silent: true });
+    } catch (e) {}
+  }
+
+  // 换人设或换大脑后重建一次后端（历史会清空，新人格才生效）
+  function rebuildBrain(kind, warm) {
+    const k = kind || brainKind;
+    if (brain && brain.reset) brain.reset();
+    applyBrain(k, warm);
   }
 
   async function ensureConnected() {
-    if (connected) return;
-    if (connecting) return connecting;
-    connecting = (async () => {
-      try { await connectNow(); } finally { connecting = null; }
-    })();
-    return connecting;
+    if (connected && brain) return;
+    await applyBrain(brainKind, false);
   }
 
-  function scheduleRetry() {
-    if (retryTimer || connected) return;
-    const ms = Math.max(2000, Number(CONFIG.acpRetryMs) || 8000);
-    retryTimer = setTimeout(() => { retryTimer = null; tryConnect(); }, ms);
-  }
-
-  async function tryConnect() {
+  // 启动时建一次链路。失败不重试——多半是没装 Ollama、没填 Key，
+  // 或 WorkBuddy 没开，轮询重试只会刷状态栏；用户改完配置会经
+  // pet:setBrain 重新触发一次。
+  async function tryConnect(warm) {
     if (connected) return true;
     bootAttempts++;
-    setStatus(bootAttempts === 1 ? '正在连接 WorkBuddy 本地服务…' : '正在重试连接…');
-    try {
-      await ensureConnected();
-      setStatus(linkedStatus());
-      // 首次是失败后才成功的，补一条记录，避免记录框停在"正在连接"
-      if (bootAttempts > 1) { showMessages(); addSystem('链路已建立，等待指令。'); }
-      return true;
-    } catch (e) {
-      const msg = (e && e.message) ? e.message : String(e);
-      setStatus('链路未就绪 · ' + msg + '（每 ' + Math.round((Number(CONFIG.acpRetryMs) || 8000) / 1000) + ' 秒自动重试）');
-      scheduleRetry();
-      return false;
+    const ok = await applyBrain(brainKind, warm);
+    if (ok && bootAttempts > 1) {
+      showMessages();
+      addSystem('「' + brainLabel(brainKind) + '」已就绪，可以说话了。');
     }
+    return ok;
   }
 
   async function send() {
@@ -750,52 +821,116 @@
     addMsg('user', text);
     const bubble = addMsg('assistant', '…');
 
+    // 时钟快通道：问时间/日期时直接查系统时钟。
+    // 本地小模型没有实时感知，让它回答"几点了"基本等于让它编一个 —— 既错又慢，
+    // 而这类问题的答案是确定的，没必经过模型。
+    if ((CONFIG.chat || {}).clockFastPath !== false) {
+      const cr = window.ChatBackends.clockReply(text, persona);
+      if (cr) {
+        const parsed = window.ChatBackends.parseEmotion(cr);
+        if (l2d.setChatEmotion) l2d.setChatEmotion(parsed.emo);
+        setBubbleText(bubble, parsed.text);
+        l2d.setSpeaking(true);
+        l2d.feedChatText(parsed.text);
+        setStatus('本机时钟 · ' + brainLabel(brainKind) + '（未调用模型）');
+        try {
+          if (ttsOn) ttsSpeak(parsed.text, [parsed.emo], null);
+          else await new Promise((r) => setTimeout(r, Math.min(2600, 500 + parsed.text.length * 90)));
+        } finally {
+          l2d.setSpeaking(false);
+        }
+        return;
+      }
+    }
+
     l2d.setSpeaking(true);
     try {
-      await ensureConnected();
-      if (!connected) throw new Error('链路未建立');
+      if (!brain || !connected) {
+        const ok = await applyBrain(brainKind, false);
+        if (!ok) throw new Error('「' + brainLabel(brainKind) + '」当前不可用，请看状态栏提示');
+      }
       let acc = '';
-      bubble.textContent = '';
-      await bridge.sendPrompt(text, {
-        onText: (t) => {
-          acc += t;
-          bubble.textContent = acc;
+      // 进入「思考中」状态：气泡显示提示、状态栏提示，并标记 generating 以露出停止按钮
+      bubble.classList.add('thinking', 'generating');
+      setBubbleText(bubble, '思考中…');
+      setStatus('思考中… · ' + brainLabel(brainKind));
+      let pendingEmo = null;      // 情绪标签可能跨好几个流片段才完整，先攒着
+      const stripTag = (s) => {
+        // 流式的难点：标签可能分多次到达（"["、"jo"、"y]"），
+        // 攒够一个完整的 [...] 再判定，够不上就先不显示这段，避免把 "[jo" 打到气泡里。
+        if (pendingEmo !== null) {
+          pendingEmo += s;
+          const m = /^\[([a-zA-Z]*)\]/.exec(pendingEmo);
+          if (m) {
+            const tag = m[1].toLowerCase();
+            if (window.ChatBackends.EMOTIONS.indexOf(tag) >= 0 && l2d.setChatEmotion) l2d.setChatEmotion(tag);
+            const rest = pendingEmo.slice(m[0].length);
+            pendingEmo = null;
+            return { text: rest, hold: false };
+          }
+          if (pendingEmo.length > 24 || !/^\[?[a-zA-Z]*$/.test(pendingEmo)) {
+            // 攒了半天也不像标签：原样吐出来，别吞掉用户的字
+            const out = pendingEmo; pendingEmo = null;
+            return { text: out, hold: false };
+          }
+          return { text: '', hold: true };
+        }
+        if (s === '[' || /^\[[a-zA-Z]*$/.test(s)) { pendingEmo = s; return { text: '', hold: true }; }
+        return { text: s, hold: false };
+      };
+      await brain.send(text, {
+        onDelta: (piece) => {
+          const r = stripTag(piece);
+          if (!r.text) return;
+          acc += r.text;
+          bubble.classList.remove('thinking');   // 首个字到了，思考提示撤下
+          setBubbleText(bubble, acc);
           l2d.feedChatText(acc);   // 实时喂给口型引擎，聊天回复也做元音对照
           messagesEl.scrollTop = messagesEl.scrollHeight;
         },
-        // 历史回放：桌宠附着在 WorkBuddy 的当前会话上，流里会先把整段历史推一遍。
-        // 回放期间只显示"同步中"，并把气泡清空，免得把历史当成本轮回复。
+        // WorkBuddy 大脑专属：上游会先把整段会话历史回放一遍，回放段不渲染
         onReplay: (active) => {
           if (active) {
             acc = '';
             bubble.classList.add('syncing');
-            bubble.textContent = '（正在同步 WorkBuddy 会话历史…）';
+            bubble.classList.remove('thinking');
+            setBubbleText(bubble, '（正在同步 WorkBuddy 会话历史…）');
             setStatus('正在同步会话历史…');
           } else {
             acc = '';
             bubble.classList.remove('syncing');
-            bubble.textContent = '';
+            bubble.classList.add('thinking');
+            setBubbleText(bubble, '思考中…');
             setStatus('已接收本轮回复，生成中…');
+            pendingEmo = null;
           }
           messagesEl.scrollTop = messagesEl.scrollHeight;
         },
-        onError: (e) => { bubble.textContent = '[错误] ' + e.message; }
+        onDone: (full, meta) => {
+          bubble.classList.remove('syncing', 'thinking', 'generating');
+          const parsed = window.ChatBackends.parseEmotion(full || acc);
+          // 流式阶段已经设过就不重复设；没设过（比如标签在最开头但被 hold 了）在这里补
+          if (l2d.setChatEmotion) l2d.setChatEmotion(parsed.emo);
+          const stopped = !!(meta && meta.stopped);
+          let shown = acc || parsed.text;
+          if (!shown) shown = stopped ? '（已停止）' : '(无文本回复)';
+          else if (stopped) shown += '（已停止）';
+          setBubbleText(bubble, shown);
+          // TTS：复用台词那条链路，聊出来的话也能念出来（语音关着就只显示文字）
+          if (ttsOn && shown) ttsSpeak(shown, [parsed.emo], null);
+          setStatus(brainLabel(brainKind) + (stopped ? ' · 已停止' : ' · ' + (parsed.tagged ? '情绪[' + parsed.emo + ']' : '已回复')));
+        },
+        onError: (e) => {
+          bubble.classList.remove('thinking', 'generating');
+          setBubbleText(bubble, '[错误] ' + ((e && e.message) || e));
+          setStatus(brainLabel(brainKind) + ' 出错 · ' + ((e && e.message) || e));
+        }
       });
-      bubble.classList.remove('syncing');
-      if (!acc) {
-        // 真的一个字都没有时，给一句可解释的提示，而不是干挂着"无文本回复"
-        bubble.textContent = bubble.classList.contains('syncing')
-          ? '(本轮没有文本回复)'
-          : '(无文本回复)';
-      }
-      setStatus(linkedStatus());
     } catch (e) {
       const msg = (e && e.message) ? e.message : String(e);
-      bubble.textContent = '无法送达：' + msg;
+      bubble.classList.remove('thinking', 'generating');
+      setBubbleText(bubble, '无法送达：' + msg);
       setStatus('链路未就绪 · ' + msg);
-      // 端口可能已变化（WorkBuddy 重启）：清掉内存里的端口，让下次探活重新发现
-      acpPort = 0;
-      scheduleRetry();
     } finally {
       l2d.setSpeaking(false);
     }
@@ -1019,10 +1154,17 @@
       addSystem('渲染核心已挂载 · 正在建立链路…');
     }
 
+    // 人设先加载：后面建后端时要用它拼提示词
+    try { persona = await window.desktopPet.getPersona(); } catch (e) { persona = null; }
+    brainKind = (CONFIG.chat && CONFIG.chat.backend) || 'cloud';
+
     if (CONFIG.autoConnectChat !== false) {
-      tryConnect();
+      // 本地模型在启动时预热：此时主窗口还没建好、主进程的 pet:setBrain 会落空，
+      // 所以由渲染进程自己判断。冷加载 7B 权重要十几秒，不预热的话
+      // 用户开口后会干等半天才出第一个字。
+      tryConnect(brainKind === 'local');
     } else {
-      setStatus('未连接（autoConnectChat=false）');
+      setStatus('未连接（autoConnectChat=false）· 可在托盘菜单「切换聊天大脑」里启用');
     }
   })();
 })();

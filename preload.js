@@ -166,6 +166,41 @@ contextBridge.exposeInMainWorld('desktopPet', {
     try { return ipcRenderer.invoke('pet:setBindings', payload || {}); }
     catch (e) { return Promise.resolve({ ok: false, error: String(e) }); }
   },
+  // ==================== 聊天大脑（本地 / 云端 / WorkBuddy） ====================
+  // 读取人设（app/data/persona.json，不存在时主进程返回内置默认）
+  getPersona: () => {
+    try { return ipcRenderer.invoke('pet:getPersona'); }
+    catch (e) { return Promise.resolve({}); }
+  },
+  // 写入人设
+  setPersona: (p) => {
+    try { return ipcRenderer.invoke('pet:setPersona', p || {}); }
+    catch (e) { return Promise.resolve({ ok: false, error: String(e && e.message || e) }); }
+  },
+  // 探测本地 Ollama 是否可用（返回 {ok, models:[...]}），供设置页提示安装状态
+  probeLocalModel: () => {
+    try { return ipcRenderer.invoke('pet:probeLocalModel'); }
+    catch (e) { return Promise.resolve({ ok: false, message: String(e) }); }
+  },
+
+  // ==================== Ollama 侧车（按需拉起 / 随桌宠退出） ====================
+  // 启动本地模型服务并等到就绪。already=true 表示本来就有一个在跑（我们只是借用，
+  // 退出桌宠时不会关它）。
+  ollamaStart: (maxWaitMs) => {
+    try { return ipcRenderer.invoke('pet:ollamaStart', maxWaitMs || 60000); }
+    catch (e) { return Promise.resolve({ ok: false, message: String(e) }); }
+  },
+  // 查询服务归属：owned=true 表示是桌宠拉起的，退出时会被一起关掉
+  ollamaStatus: () => {
+    try { return ipcRenderer.invoke('pet:ollamaStatus'); }
+    catch (e) { return Promise.resolve({ running: false, owned: false }); }
+  },
+  // 主动关闭（只关桌宠自己拉起的那个）
+  ollamaStop: () => {
+    try { return ipcRenderer.invoke('pet:ollamaStop'); }
+    catch (e) { return Promise.resolve({ ok: false }); }
+  },
+
   // 设置页「试播」：让桌宠立即播放指定绑定
   triggerAsset: (id) => {
     try { return ipcRenderer.invoke('pet:triggerAsset', id); }

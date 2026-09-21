@@ -3,6 +3,7 @@
 //   1) 启动一个本地静态服务器，托管 app/ 与 node_modules/，并把 /models/* 映射到本机模型目录（解决 file:// 跨域）
 //   2) 创建透明、置顶、无边框、可拖拽/缩放的桌宠窗口
 const http = require('http');
+const https = require('https');   // 云端聊天接口可能走 https，代理转发需要
 const fs = require('fs');
 const crypto = require('crypto');
 const path = require('path');
@@ -187,6 +188,71 @@ try {
 } catch (e) {
   CONFIG = {};
 }
+
+// ---------------------------------------------------------------------------
+// 聊天大脑配置：本地 / 云端 / WorkBuddy 三选一
+// ---------------------------------------------------------------------------
+// backend         当前选用的大脑。首次安装默认 'cloud'（本地模型没装时也能直接用）。
+// askEveryStart   是否每次启动都弹选择窗。用户勾了"下次不再询问"就置 false。
+//                 无论 true/false，选过的大脑都会记下来，下次作为默认选中项。
+const CHAT_DEFAULTS = {
+  backend: 'cloud',
+  askEveryStart: true,
+  local: {
+    baseUrl: 'http://127.0.0.1:11434',
+    model: 'qwen2.5:7b-instruct-q4_K_M',
+    temperature: 0.8,
+    numCtx: 8192,
+    // keepAlive 拉长到 30m：Ollama 默认 5 分钟不用就卸载模型，
+    // 桌宠这种"半天说一句"的用法会反复触发冷加载，体验很差。
+    keepAlive: '30m'
+  },
+  cloud: {
+    baseUrl: 'https://api.deepseek.com/v1',
+    model: 'deepseek-chat',
+    apiKey: '',
+    temperature: 0.8,
+    maxTokens: 512
+  },
+  workbuddy: { cwd: '' }
+};
+function normalizeChatConfig() {
+  const c = Object.assign({}, CHAT_DEFAULTS, CONFIG.chat || {});
+  c.local = Object.assign({}, CHAT_DEFAULTS.local, (CONFIG.chat && CONFIG.chat.local) || {});
+  c.cloud = Object.assign({}, CHAT_DEFAULTS.cloud, (CONFIG.chat && CONFIG.chat.cloud) || {});
+  c.workbuddy = Object.assign({}, CHAT_DEFAULTS.workbuddy, (CONFIG.chat && CONFIG.chat.workbuddy) || {});
+  if (!c.workbuddy.cwd) c.workbuddy.cwd = CONFIG.acpCwd || '.';
+  if (['local', 'cloud', 'workbuddy'].indexOf(c.backend) < 0) c.backend = 'cloud';
+  CONFIG.chat = c;
+  return c;
+}
+normalizeChatConfig();
+
+// 人设文件：app/data/persona.json。不存在时回落到内置默认（男性助理）。
+const PERSONA_PATH = path.join(APP_DIR, 'data', 'persona.json');
+const PERSONA_DEFAULT = {
+  version: 1,
+  charName: '黑叶萤',
+  charGender: 'male',
+  relation: '助理',
+  userTitle: '博士',
+  selfTitle: '萤',
+  personality: ['沉稳克制，话不多，但不冷淡', '做事靠谱，答应下来的事一定办到'],
+  tone: '干练、平实，像一位长期共事的男性助理：不谄媚，不撒娇，称呼对方用「您」。',
+  speech: { length: '短句为主，一次不超过三句', punctuation: '正常书面标点，不用颜文字', languages: '默认简体中文' },
+  boundaries: ['不主动宣称自己是人工智能', '不替对方做重大决定'],
+  extra: ''
+};
+function readPersona() {
+  try {
+    const j = JSON.parse(fs.readFileSync(PERSONA_PATH, 'utf-8'));
+    if (j && typeof j === 'object') return j;
+  } catch (e) { /* 文件不存在或坏了：用默认 */ }
+  return JSON.parse(JSON.stringify(PERSONA_DEFAULT));
+}
+function writePersona(p) {
+  fs.writeFileSync(PERSONA_PATH, JSON.stringify(p, null, 2), 'utf-8');
+}
 // 模型库根目录：**每次请求都读** CONFIG，而不是启动时求值成常量。
 // 这样在设置里换了「模型库目录」不必重启程序 —— /models/* 立刻改用新根目录。
 // （曾经写成启动常量，换库只能重启；安全防护由 safeJoin 的目录穿越检查保持不变。）
@@ -329,6 +395,142 @@ function audioKill() {
   try { audioChild.kill(); } catch (e) {}
   audioChild = null; audioReady = false;
 }
+
+// ---------------------------------------------------------------------------
+// Ollama 侧车（本地聊天模型的宿主：选中时才拉起，随桌宠退出而关闭）
+// ---------------------------------------------------------------------------
+// 三条纪律，都是会踩的坑：
+// 1) 只在用户选中「本地模型」时才拉起 —— 它常驻会占着显存，不该开机就起。
+// 2) **只关我们自己拉起的那个**。若用户本来就开着 Ollama（命令行起的、或其它
+//    软件在用），我们只是借用，退出时绝不能杀 —— 否则关一次桌宠就把别人的服务
+//    搞没了。用 ollamaState.owned 区分「我起的」和「本来就在的」。
+// 3) **必须显式传 OLLAMA_MODELS**。模型当初刻意装到 D:\ollama-models（省 C 盘），
+//    不传这个变量，服务会去读系统默认目录（~/.ollama/models，本机是空的），
+//    然后报「找不到模型」——看起来像没下载，其实是读错了地方。
+// ---------------------------------------------------------------------------
+const OLLAMA_HOST = '127.0.0.1';
+const OLLAMA_PORT_DEFAULT = 11434;
+const ollamaState = { owned: false, running: false, pid: 0, exe: '', modelsDir: '' };
+let ollamaChild = null;
+
+function ollamaPort() {
+  const lc = (CONFIG.chat && CONFIG.chat.local) || {};
+  return Number(lc.port) || OLLAMA_PORT_DEFAULT;
+}
+
+// 模型目录优先级：config.chat.local.modelsDir > 环境变量 OLLAMA_MODELS >
+// 已存在的 D:\ollama-models > 不传（交给 Ollama 自己决定）
+function ollamaModelsDir() {
+  const lc = (CONFIG.chat && CONFIG.chat.local) || {};
+  if (lc.modelsDir) return String(lc.modelsDir);
+  if (process.env.OLLAMA_MODELS) return String(process.env.OLLAMA_MODELS);
+  try {
+    const d = 'D:\\ollama-models';
+    if (fs.existsSync(d) && fs.existsSync(path.join(d, 'manifests'))) return d;
+  } catch (e) {}
+  return '';
+}
+
+// 按常见安装位置找 ollama.exe，找不到就退回 PATH（指望 `ollama` 命令可用）
+function ollamaExe() {
+  const cands = [];
+  if (process.env.LOCALAPPDATA) cands.push(path.join(process.env.LOCALAPPDATA, 'Programs', 'Ollama', 'ollama.exe'));
+  if (process.env.ProgramFiles) cands.push(path.join(process.env.ProgramFiles, 'Ollama', 'ollama.exe'));
+  if (process.env.USERPROFILE) cands.push(path.join(process.env.USERPROFILE, '.ollama', 'bin', 'ollama.exe'));
+  for (let i = 0; i < cands.length; i++) {
+    try { if (cands[i] && fs.existsSync(cands[i])) return cands[i]; } catch (e) {}
+  }
+  return 'ollama';
+}
+
+// 探活：拿得到 /api/version 就算活着
+function ollamaPing(timeoutMs) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    const req = http.request({
+      host: OLLAMA_HOST, port: ollamaPort(), path: '/api/version', method: 'GET',
+      timeout: timeoutMs || 1200
+    }, (res) => {
+      res.on('data', () => {});
+      res.on('end', () => finish(res.statusCode === 200));
+    });
+    req.on('error', () => finish(false));
+    req.on('timeout', () => { try { req.destroy(); } catch (e) {} finish(false); });
+    try { req.end(); } catch (e) { finish(false); }
+  });
+}
+
+// 拉起服务并等到端口就绪。返回 {ok, owned, already, elapsedMs, message}
+//   already=true 表示「本来就有一个在跑」，我们只是借用（退出时不会关它）
+async function ollamaStart(maxWaitMs) {
+  const t0 = Date.now();
+  const limit = maxWaitMs || 60000;
+  if (await ollamaPing(1200)) {
+    ollamaState.running = true;
+    return { ok: true, owned: ollamaState.owned, already: !ollamaState.owned, elapsedMs: 0 };
+  }
+  const exe = ollamaExe();
+  const env = Object.assign({}, process.env);
+  const md = ollamaModelsDir();
+  if (md) env.OLLAMA_MODELS = md;
+  let child;
+  try {
+    const { spawn } = require('child_process');
+    child = spawn(exe, ['serve'],
+      { cwd: path.dirname(exe), windowsHide: true, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (e) {
+    return { ok: false, message: '启动 Ollama 失败：' + (e && e.message) + '（请确认已安装 Ollama）' };
+  }
+  ollamaChild = child;
+  ollamaState.owned = true;
+  ollamaState.pid = child.pid;
+  ollamaState.exe = exe;
+  ollamaState.modelsDir = md;
+  child.on('error', (e) => {
+    log('ollama: spawn error: ' + e.message);
+    if (ollamaChild === child) { ollamaChild = null; ollamaState.owned = false; ollamaState.running = false; }
+  });
+  child.on('exit', (c) => {
+    log('ollama: exited code=' + c);
+    if (ollamaChild === child) {
+      ollamaChild = null; ollamaState.owned = false; ollamaState.running = false; ollamaState.pid = 0;
+    }
+  });
+  if (child.stdout) child.stdout.on('data', (d) => log('ollama ' + String(d).trim()));
+  if (child.stderr) child.stderr.on('data', (d) => log('ollama ' + String(d).trim()));
+  log('ollama: spawned (' + exe + ') modelsDir=' + (md || '(default)'));
+  while (Date.now() - t0 < limit) {
+    if (await ollamaPing(1000)) {
+      ollamaState.running = true;
+      return { ok: true, owned: true, already: false, elapsedMs: Date.now() - t0 };
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return { ok: false, message: 'Ollama 启动超时（' + Math.round(limit / 1000) + ' 秒）' };
+}
+
+// 只关我们自己拉起的那个。顺便按进程树杀：Ollama 会再派生 runner 子进程
+// （真正占显存的是它），只 kill 主进程会留下孤儿继续吃显存。
+function ollamaStop() {
+  if (!ollamaChild || !ollamaState.owned) {
+    if (ollamaState.running) log('ollama: not spawned by us, leaving it running');
+    return;
+  }
+  const pid = ollamaChild.pid;
+  try {
+    if (process.platform === 'win32') {
+      require('child_process').execFile('taskkill', ['/F', '/T', '/PID', String(pid)], () => {});
+    } else {
+      ollamaChild.kill('SIGTERM');
+    }
+  } catch (e) {}
+  log('ollama: stopped (pid=' + pid + ')');
+  ollamaChild = null;
+  ollamaState.owned = false;
+  ollamaState.running = false;
+  ollamaState.pid = 0;
+}
 function audioReq(method, pathname, body) {
   return new Promise((resolve) => {
     const payload = body ? Buffer.from(JSON.stringify(body)) : null;
@@ -387,6 +589,102 @@ function ttsProxy(res, query) {
   upstream.end();
 }
 
+
+// ---------------------------------------------------------------------------
+// 聊天后端代理：/api/ollama/*（本机 Ollama）与 /api/cloud/*（云端 OpenAI 兼容接口）
+// ---------------------------------------------------------------------------
+// 和 /api/v1/acp 同一套路：渲染进程只打同源地址，由主进程转发。
+// 两个理由：
+//   1) 跨域 —— 页面来自 http://127.0.0.1:18765，直连 11434 或 https 接口都会被
+//      Chromium 拦掉，失败时只剩一句没信息量的 "Failed to fetch"。
+//   2) 可读错误 —— 代理能把"连不上 / 401 / 模型没下载"翻成人话再回给前端。
+//
+// 流式必须逐块透传（up.pipe(res)），绝不能缓冲完再返回；否则打字机效果
+// 会退化成"等半天一次性吐完"，本地模型尤其明显。
+function pipeProxy(req, res, opts) {
+  let u;
+  try { u = new URL(opts.base); } catch (e) {
+    res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+    return res.end(JSON.stringify({ error: '接口地址不合法：' + opts.base }));
+  }
+  const isHttps = u.protocol === 'https:';
+  const mod = isHttps ? https : http;
+  const port = u.port || (isHttps ? 443 : 80);
+
+  const h = Object.assign({}, req.headers);
+  // 这两个是渲染进程传给主进程的"目标指示"，不能泄露给上游
+  delete h['x-target-base'];
+  delete h['x-target-key'];
+  delete h['host'];
+  delete h['origin'];
+  delete h['referer'];
+  Object.assign(h, opts.headers || {});
+
+  const up = mod.request({
+    hostname: u.hostname, port: port, path: opts.path, method: req.method,
+    headers: h, timeout: opts.timeout || 120000
+  }, (upRes) => {
+    res.writeHead(upRes.statusCode || 502, {
+      'Content-Type': upRes.headers['content-type'] || 'application/json; charset=utf-8',
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'no-store'
+    });
+    upRes.pipe(res);
+  });
+  up.on('timeout', () => {
+    try { up.destroy(); } catch (e) {}
+    if (!res.headersSent) {
+      res.writeHead(504, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: '上游超时（本地模型首次加载可能较慢，请稍候再试）' }));
+    }
+  });
+  up.on('error', (e) => {
+    if (!res.headersSent) {
+      res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: (opts.failPrefix || '无法连接上游') + '：' + e.message }));
+    }
+  });
+  req.on('error', () => { try { up.destroy(); } catch (e) {} });
+  req.pipe(up);
+}
+
+// /api/ollama/* -> http://127.0.0.1:11434/*
+function ollamaProxy(req, res, urlPath) {
+  const base = (CONFIG.chat && CONFIG.chat.local && CONFIG.chat.local.baseUrl) || 'http://127.0.0.1:11434';
+  pipeProxy(req, res, {
+    base: base,
+    path: urlPath.slice('/api/ollama'.length),
+    // 本地模型冷启动要加载几 GB 权重，超时给足（10 分钟）
+    timeout: 600000,
+    failPrefix: '无法连接 Ollama（请确认已安装并启动，默认端口 11434）'
+  });
+}
+
+// /api/cloud/* -> 用户配置的云端接口
+// 目标地址优先取请求头 x-target-base（前端填写后即时生效，未保存也能试），
+// 其次取 config.json 里已保存的值。密钥同理，且只在主进程里拼进 Authorization。
+function cloudProxy(req, res, urlPath) {
+  const cc = (CONFIG.chat && CONFIG.chat.cloud) || {};
+  const base = String(req.headers['x-target-base'] || cc.baseUrl || '');
+  const key = String(req.headers['x-target-key'] || cc.apiKey || '');
+  if (!base) {
+    res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+    return res.end(JSON.stringify({ error: '还没填云端接口地址' }));
+  }
+  if (!/^https?:\/\//i.test(base)) {
+    res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+    return res.end(JSON.stringify({ error: '接口地址必须以 http:// 或 https:// 开头' }));
+  }
+  const headers = {};
+  if (key) headers['Authorization'] = 'Bearer ' + key;
+  pipeProxy(req, res, {
+    base: base,
+    path: urlPath.slice('/api/cloud'.length),
+    headers: headers,
+    timeout: 120000,
+    failPrefix: '无法连接云端接口'
+  });
+}
 
 // ---------------------------------------------------------------------------
 // WorkBuddy ACP 反向代理 + 端口自动发现
@@ -1043,6 +1341,12 @@ const server = http.createServer((req, res) => {
     }));
   }
 
+  // /api/ollama/* -> 本机 Ollama（本地聊天模型）
+  if (urlPath.startsWith('/api/ollama/')) return ollamaProxy(req, res, urlPath);
+
+  // /api/cloud/* -> 云端 OpenAI 兼容接口（地址与密钥由渲染进程经请求头给出）
+  if (urlPath.startsWith('/api/cloud/')) return cloudProxy(req, res, urlPath);
+
   // /api/v1/acp* -> WorkBuddy 本地 ACP 服务（同源代理，绕开跨域并给出可读错误）
   // 注意 /api/v1/acp/health 必须排在前面：它也以 /api/v1/acp 开头。
   if (urlPath === '/api/v1/acp/health') return acpHealth(res);
@@ -1218,8 +1522,6 @@ server.on('error', (err) => {
 app.whenReady().then(() => {
   server.listen(PORT, '127.0.0.1', () => {
     log('static server on http://127.0.0.1:' + PORT + '/');
-    createWindow();
-    createTray();
     // 预热：后台先把 ACP 端口扫出来，页面 ~1 秒后的 /api/v1/acp/health 就能直接命中
     // （两个调用共用同一个 discovering Promise，不会重复扫描）
     discoverAcpPort();
@@ -1229,8 +1531,25 @@ app.whenReady().then(() => {
     audioSpawn();
     // 恢复上次配置的全局快捷键（范围 = 全局时才注册）
     try { refreshHotkeys(); } catch (e) {}
+
+    // 启动先问一句"用哪个大脑"。askEveryStart 为 true（默认）时每次都问；
+    // 用户在窗里勾了"下次不再询问"就置 false，之后直接沿用记住的那个。
+    if (CONFIG.chat.askEveryStart !== false) {
+      openBrainChooser(() => bootPet());
+    } else {
+      bootPet();
+    }
   });
 });
+
+// 桌宠主窗口 + 托盘。之所以抽出来：选择窗关掉之后才建主窗口，
+// 这样"选大脑"这一步不会被桌宠窗口抢焦点。
+function bootPet() {
+  if (winAlive()) return;
+  createWindow();
+  createTray();
+  // 主窗口加载完会把当前大脑下发一次（见 createWindow 的 did-finish-load）
+}
 
 // ---------------------------------------------------------------------------
 // 应用级状态（托盘菜单的单一可信源）。渲染进程里的 UI 锁按钮与托盘锁菜单都经由
@@ -1414,6 +1733,56 @@ function openSettings() {
   settingsWin = sw;
 }
 
+// ---------------------------------------------------------------------------
+// 聊天大脑选择窗
+// ---------------------------------------------------------------------------
+// 启动时弹（除非用户勾过"下次不再询问"）。它只负责收集选择，真正的切换
+// 由 pet:brainChoice 落盘后经 pet:setBrain 下发给桌宠窗口。
+//
+// 关窗不点确定 = 沿用上次的大脑（回调收到 null），不会把程序卡在没选的状态。
+let brainWin = null;
+let brainCb = null;
+function openBrainChooser(onDone) {
+  if (brainWin && !brainWin.isDestroyed()) { try { brainWin.focus(); } catch (e) {} return; }
+  brainCb = onDone || null;
+  const w = new BrowserWindow({
+    width: 520, height: 720,
+    minWidth: 460, minHeight: 480,
+    title: '选择聊天大脑',
+    backgroundColor: '#11151c',
+    autoHideMenuBar: true,
+    show: true,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
+      preload: path.join(__dirname, 'preload.js')
+    }
+  });
+  w.loadURL('http://127.0.0.1:' + PORT + '/brain-chooser.html');
+  w.once('ready-to-show', () => { try { w.show(); w.focus(); } catch (e) {} });
+  w.on('closed', () => {
+    brainWin = null;
+    if (brainCb) { const cb = brainCb; brainCb = null; cb(null); }
+  });
+  brainWin = w;
+}
+function closeBrainChooser(result) {
+  const cb = brainCb;
+  brainCb = null;
+  if (brainWin && !brainWin.isDestroyed()) { try { brainWin.close(); } catch (e) {} }
+  if (cb) cb(result);
+}
+function brainLabel() {
+  return ({ local: '本地模型', cloud: '云端接口', workbuddy: 'WorkBuddy' })[CONFIG.chat.backend] || '云端接口';
+}
+// 把当前大脑下发给桌宠窗口；warm=true 时渲染进程会顺手预热（本地模型要加载权重）
+function pushBrain(warm) {
+  if (winAlive()) {
+    mainWin.webContents.send('pet:setBrain', { backend: CONFIG.chat.backend, warm: !!warm });
+  }
+}
+
 function createTray() {
   const iconPath = path.join(__dirname, 'app', 'assets', 'tray.png');
   try {
@@ -1443,6 +1812,11 @@ function buildTrayMenu() {
     },
     { type: 'separator' },
     {
+      label: '切换聊天大脑…（当前：' + brainLabel() + '）',
+      click: () => openBrainChooser(() => pushBrain(true))
+    },
+    { type: 'separator' },
+    {
       label: appState.locked ? '解锁窗口与模型位置/缩放' : '锁定窗口与模型位置/缩放',
       click: () => {
         applyWindowLock(!appState.locked);
@@ -1455,148 +1829,33 @@ function buildTrayMenu() {
     },
     { type: 'separator' },
     {
-      label: '口型调试',
+      label: '调试',
       submenu: [
         {
-          label: '元音参数族',
-          submenu: VOWEL_FAMILIES.map((f) => ({
-            label: (visemeDbg.family === f.id ? '● ' : '  ') + f.label,
-            click: () => { visemeDbg.family = f.id; sendViseme('pet:setVowelFamily', f.id); }
-          }))
+          label: '参数调试面板',
+          click: () => { toggleDebugPanel(); }
         },
         {
-          label: (visemeDbg.driveOpenY ? '● ' : '  ') + '驱动 OpenY(张合)',
-          click: () => { visemeDbg.driveOpenY = !visemeDbg.driveOpenY; sendViseme('pet:setDriveOpenY', visemeDbg.driveOpenY); }
-        },
-        {
-          label: (visemeDbg.silenceSpeaking === 0 ? '● ' : '  ') + '说话时 Silence=0(口型接管)',
-          click: () => { visemeDbg.silenceSpeaking = (visemeDbg.silenceSpeaking === 0 ? 1 : 0); sendViseme('pet:setSilenceSpeaking', visemeDbg.silenceSpeaking); }
-        }
-      ]
-    },
-    {
-      label: (emoState.enabled ? '● ' : '  ') + '表情情绪(随台词做五官)',
-      click: () => {
-        emoState.enabled = !emoState.enabled;
-        sendViseme('pet:setEmotionEnabled', emoState.enabled);
-        saveConfig();
-      }
-    },
-    {
-      label: (idleState.enabled ? '● ' : '  ') + '待机台词(自动随机)',
-      click: () => {
-        idleState.enabled = !idleState.enabled;
-        sendViseme('pet:setIdleEnabled', idleState.enabled);
-        saveConfig();
-      }
-    },
-    {
-      label: (screenTrackState.enabled ? '● ' : '  ') + '屏幕运动追踪',
-      click: () => {
-        screenTrackState.enabled = !screenTrackState.enabled;
-        if (winAlive()) mainWin.webContents.send('pet:setScreenTrack', screenTrackState.enabled);
-      }
-    },
-    {
-      label: (mouseFollowState.enabled ? '● ' : '  ') + '鼠标追踪',
-      click: () => {
-        mouseFollowState.enabled = !mouseFollowState.enabled;
-        if (winAlive()) mainWin.webContents.send('pet:setMouseFollow', mouseFollowState.enabled);
-        saveConfig();
-      }
-    },
-    {
-      label: (musicState.enabled ? '● ' : '  ') + '音律识别（闭眼跟拍）',
-      click: () => {
-        musicState.enabled = !musicState.enabled;
-        if (winAlive()) mainWin.webContents.send('pet:setMusic', musicState.enabled);
-        saveConfig();
-      }
-    },
-    {
-      label: '语音（TTS）',
-      submenu: [
-        {
-          label: (ttsState.enabled ? '● ' : '  ') + '启用语音',
-          click: () => {
-            ttsState.enabled = !ttsState.enabled;
-            if (ttsState.enabled) { ttsSpawn(); } else { ttsKill(); }
-            sendViseme('pet:setTTS', { enabled: ttsState.enabled });
-            saveConfig();
-          }
-        },
-        { type: 'separator' },
-        {
-          label: '引擎',
-          submenu: TTS_ENGINE_IDS.map((e) => ({
-            label: (ttsState.want === e.id ? '● ' : '  ') + e.label,
-            click: () => {
-              ttsState.want = e.id;
-              CONFIG.ttsEngine = e.id;
-              ttsRestart();
-              saveConfig();
+          label: '口型调试',
+          submenu: [
+            {
+              label: '元音参数族',
+              submenu: VOWEL_FAMILIES.map((f) => ({
+                label: (visemeDbg.family === f.id ? '● ' : '  ') + f.label,
+                click: () => { visemeDbg.family = f.id; sendViseme('pet:setVowelFamily', f.id); }
+              }))
+            },
+            {
+              label: (visemeDbg.driveOpenY ? '● ' : '  ') + '驱动 OpenY(张合)',
+              click: () => { visemeDbg.driveOpenY = !visemeDbg.driveOpenY; sendViseme('pet:setDriveOpenY', visemeDbg.driveOpenY); }
+            },
+            {
+              label: (visemeDbg.silenceSpeaking === 0 ? '● ' : '  ') + '说话时 Silence=0(口型接管)',
+              click: () => { visemeDbg.silenceSpeaking = (visemeDbg.silenceSpeaking === 0 ? 1 : 0); sendViseme('pet:setSilenceSpeaking', visemeDbg.silenceSpeaking); }
             }
-          }))
-        },
-        { label: '重新探测侧车', click: () => { ttsProbe(); } },
-        { type: 'separator' },
-        { label: '状态：' + (ttsState.ok ? ('可用（' + ttsState.active + '）') : '未连接'), enabled: false }
-      ]
-    },
-    {
-      label: '语言（中文 / 日本語 / English）',
-      submenu: [
-        {
-          label: '台词显示',
-          submenu: [
-            { label: ((CONFIG.idleDisplayLang || 'cn') === 'cn' ? '● ' : '  ') + '中文', click: () => { CONFIG.idleDisplayLang = 'cn'; sendViseme('pet:setLang', { display: 'cn', voice: CONFIG.idleVoiceLang || 'cn' }); saveConfig(); } },
-            { label: ((CONFIG.idleDisplayLang || 'cn') === 'jp' ? '● ' : '  ') + '日本語', click: () => { CONFIG.idleDisplayLang = 'jp'; sendViseme('pet:setLang', { display: 'jp', voice: CONFIG.idleVoiceLang || 'cn' }); saveConfig(); } },
-            { label: ((CONFIG.idleDisplayLang || 'cn') === 'en' ? '● ' : '  ') + 'English', click: () => { CONFIG.idleDisplayLang = 'en'; sendViseme('pet:setLang', { display: 'en', voice: CONFIG.idleVoiceLang || 'cn' }); saveConfig(); } }
-          ]
-        },
-        {
-          label: '语音',
-          submenu: [
-            { label: ((CONFIG.idleVoiceLang || 'cn') === 'cn' ? '● ' : '  ') + '中文', click: () => { CONFIG.idleVoiceLang = 'cn'; sendViseme('pet:setLang', { display: CONFIG.idleDisplayLang || 'cn', voice: 'cn' }); saveConfig(); } },
-            { label: ((CONFIG.idleVoiceLang || 'cn') === 'jp' ? '● ' : '  ') + '日本語', click: () => { CONFIG.idleVoiceLang = 'jp'; sendViseme('pet:setLang', { display: CONFIG.idleDisplayLang || 'cn', voice: 'jp' }); saveConfig(); } },
-            { label: ((CONFIG.idleVoiceLang || 'cn') === 'en' ? '● ' : '  ') + 'English', click: () => { CONFIG.idleVoiceLang = 'en'; sendViseme('pet:setLang', { display: CONFIG.idleDisplayLang || 'cn', voice: 'en' }); saveConfig(); } }
           ]
         }
       ]
-    },
-    {
-      label: '界面字体',
-      submenu: [
-        {
-          label: '字号',
-          submenu: UI_FONT_SIZES.map((s) => ({
-            label: (uiState.fontSize === s ? '● ' : '  ') + s + ' px',
-            click: () => { applyUI(s, uiState.fontFamily); }
-          })).concat([{
-            label: (UI_FONT_SIZES.indexOf(uiState.fontSize) === -1 ? '● ' : '  ') + '自定义字号…',
-            click: () => { promptInput('自定义字号 (px)', '输入 8 - 64 之间的数字', String(uiState.fontSize), (val) => {
-              const n = parseInt(val, 10);
-              if (!isNaN(n)) applyUI(n, uiState.fontFamily);
-            }); }
-          }])
-        },
-        {
-          label: '字体',
-          submenu: UI_FONT_FAMILIES.map((f) => ({
-            label: (uiState.fontFamily === f.id ? '● ' : '  ') + f.label,
-            click: () => { applyUI(uiState.fontSize, f.id); }
-          })).concat([{
-            label: (uiState.fontFamily !== '' && UI_FONT_FAMILIES.every((fx) => fx.id !== uiState.fontFamily) ? '● ' : '  ') + '自定义字体名…',
-            click: () => { promptInput('自定义字体名', '如 "Sarasa Mono SC" 或 "Microsoft YaHei"', uiState.fontFamily, (val) => {
-              applyUI(uiState.fontSize, (val || '').trim());
-            }); }
-          }])
-        }
-      ]
-    },
-    {
-      label: '参数调试面板',
-      click: () => { toggleDebugPanel(); }
     },
     {
       label: '设置…',
@@ -2157,6 +2416,77 @@ ipcMain.handle('pet:previewTTS', async (_e, payload) => {
 ipcMain.handle('pet:getConfig', async () => {
   try { return JSON.parse(JSON.stringify(CONFIG)); } catch (e) { return {}; }
 });
+
+// ---- 聊天大脑 ----
+ipcMain.handle('pet:getPersona', async () => readPersona());
+
+ipcMain.handle('pet:setPersona', async (_e, p) => {
+  try {
+    if (!p || typeof p !== 'object') throw new Error('人设数据不合法');
+    writePersona(p);
+    // 人设改了要让正在跑的桌宠立刻换提示词（三种大脑共用同一份人设）
+    if (winAlive()) mainWin.webContents.send('pet:setPersona', p);
+    log('persona saved');
+    return { ok: true };
+  } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+});
+
+// 选择窗点「确定」：落盘 -> 下发 -> 关窗
+ipcMain.on('pet:brainChoice', (_e, payload) => {
+  try {
+    const p = payload || {};
+    if (p.backend && ['local', 'cloud', 'workbuddy'].indexOf(p.backend) >= 0) CONFIG.chat.backend = p.backend;
+    if (typeof p.askEveryStart === 'boolean') CONFIG.chat.askEveryStart = p.askEveryStart;
+    saveConfig();
+    log('brain chosen: ' + CONFIG.chat.backend + ' askEveryStart=' + CONFIG.chat.askEveryStart);
+    // warm=true：本地模型趁这个时候把权重装进显存，用户开口时就是热的
+    pushBrain(true);
+  } catch (e) { log('brainChoice failed: ' + e.message); }
+  closeBrainChooser(payload);
+});
+
+// 探测本机 Ollama：在不在 + 装了哪些模型
+// 拉起 Ollama 并等到就绪（选中「本地模型」时调用）。maxWaitMs 可省略，默认 60 秒。
+ipcMain.handle('pet:ollamaStart', async (_e, maxWaitMs) => {
+  try {
+    return await ollamaStart(Number(maxWaitMs) || 60000);
+  } catch (e) { return { ok: false, message: String((e && e.message) || e) }; }
+});
+
+// 查询当前 Ollama 是谁在跑（owned=我们拉起的，退出时会被关掉）
+ipcMain.handle('pet:ollamaStatus', async () => ({
+  running: !!ollamaState.running,
+  owned: !!ollamaState.owned,
+  pid: ollamaState.pid || 0,
+  modelsDir: ollamaState.modelsDir || ollamaModelsDir() || '(默认)',
+  exe: ollamaState.exe || ollamaExe()
+}));
+
+// 手动关闭（只关我们自己拉起的那个）
+ipcMain.handle('pet:ollamaStop', async () => { ollamaStop(); return { ok: true }; });
+
+ipcMain.handle('pet:probeLocalModel', async () => {
+  const base = (CONFIG.chat && CONFIG.chat.local && CONFIG.chat.local.baseUrl) || 'http://127.0.0.1:11434';
+  let u;
+  try { u = new URL(base); } catch (e) { return { ok: false, message: '接口地址不合法：' + base }; }
+  return await new Promise((resolve) => {
+    const req = http.get({ hostname: u.hostname, port: u.port || 11434, path: '/api/tags', timeout: 3000 }, (res) => {
+      let data = '';
+      res.setEncoding('utf-8');
+      res.on('data', (c) => { data += c; });
+      res.on('end', () => {
+        try {
+          const j = JSON.parse(data);
+          resolve({ ok: true, models: (j.models || []).map((m) => m.name || '') });
+        } catch (e) { resolve({ ok: false, message: '响应无法解析' }); }
+      });
+    });
+    req.on('timeout', () => { try { req.destroy(); } catch (e) {} resolve({ ok: false, message: '连接超时' }); });
+    req.on('error', (e) => resolve({ ok: false, message: '无法连接 Ollama：' + e.message }));
+  });
+});
+
+// 设置窗写入配置：payload 可为 {key,value}（单键）或平铺对象（多键同时写）。
 // 设置窗写入配置：payload 可为 {key,value}（单键）或平铺对象（多键同时写）。
 // 每个键先写进 CONFIG，再尽量实时下发；需重启的键累计后统一 reload 一次。
 ipcMain.handle('pet:setConfig', async (_e, payload) => {
@@ -2184,6 +2514,8 @@ app.on('before-quit', () => {
   try { if (tray) { tray.destroy(); tray = null; } } catch (e) {}
   try { ttsKill(); } catch (e) {}
   try { audioKill(); } catch (e) {}
+  // Ollama 若是我们自己拉起的，随桌宠一起退出（不关用户本来就开着的那一个）
+  try { ollamaStop(); } catch (e) {}
   try { server.close(); } catch (e) {}
   app.isQuiting = true;
 });

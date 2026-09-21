@@ -90,5 +90,31 @@
     "enableA": true,
     "enableB": false,
     "aSpeed": 65
+  },
+
+  "chat": {
+    "backend": "cloud",
+    "askEveryStart": true,
+    "clockFastPath": true,
+    "thinkTimeoutMs": 15000,
+    "local": {
+      "baseUrl": "http://127.0.0.1:11434",
+      "model": "qwen2.5:7b-instruct-q4_K_M",
+      "temperature": 0.8,
+      "numCtx": 8192,
+      "keepAlive": "30m",
+      "modelsDir": "",
+      "port": 11434
+    },
+    "cloud": {
+      "baseUrl": "https://api.deepseek.com/v1",
+      "model": "deepseek-chat",
+      "apiKey": "",
+      "temperature": 0.8,
+      "maxTokens": 512
+    },
+    "workbuddy": {
+      "cwd": ""
+    }
   }
 }

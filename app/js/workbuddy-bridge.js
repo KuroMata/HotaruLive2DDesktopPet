@@ -24,6 +24,7 @@
       this._id = 0;
       // session/new 的工作目录（agent 以此为工作路径）
       this.cwd = (options && options.cwd) || '.';
+      this._abortCtrl = null;     // 当前发送的 AbortController（用于「停止思考」）
     }
 
     // 是否走主进程代理（代理模式下才有 /api/v1/acp/health 这个探活端点）
@@ -144,6 +145,8 @@
       // 说明类型校验要的是数组；传字符串会直接 -32602）。
       const blocks = [{ type: 'text', text: String(text) }];
       let replaying = false;
+      this._abortCtrl = new AbortController();   // 每次发送新建一个，便于「停止思考」干净中断
+      const signal = this._abortCtrl.signal;
       try {
         await this._postAcp('session/prompt', { sessionId: this.sessionId, prompt: blocks }, (ev) => {
           const j = ev.json;
@@ -168,11 +171,17 @@
           if (replaying) return;   // 回放段一律不渲染（没有标记的会话天然是 false，照常渲染）
           const t = this._extractText(upd);
           if (t && h.onText) h.onText(t);
-        });
-        if (h.onDone) h.onDone();
+        }, signal);
+        if (h.onDone) h.onDone({ stopped: signal.aborted });
       } catch (e) {
         if (h.onError) h.onError(e);
         else throw e;
+      }
+    }
+    // 手动停止当前这一轮 SSE 流（由聊天后端的「停止思考」按钮调用）
+    abort() {
+      if (this._abortCtrl && !this._abortCtrl.signal.aborted) {
+        try { this._abortCtrl.abort(); } catch (e) { /* 忽略 */ }
       }
     }
 
@@ -188,13 +197,15 @@
 
     // ---- 内部 ----
 
-    // POST /api/v1/acp，响应为 SSE 流，逐事件回调
-    async _postAcp(method, params, onEvent) {
+    // POST /api/v1/acp，响应为 SSE 流，逐事件回调。
+    // signal 可选：传入 AbortController.signal 后，手动停止会在下一次读取前干净收尾（不当成错误）。
+    async _postAcp(method, params, onEvent, signal) {
       const body = JSON.stringify({ jsonrpc: '2.0', id: ++this._id, method, params });
       const resp = await this._fetch(this.base + '/api/v1/acp', {
         method: 'POST',
         headers: this._headers(),
-        body
+        body,
+        signal: signal
       });
       if (!resp.body || typeof resp.body.getReader !== 'function') {
         // 某些环境下拿不到流（例如响应被完整缓冲）。退化为一次性解析，至少不会静默卡死。
@@ -207,6 +218,7 @@
       const decoder = new TextDecoder();
       let buf = '';
       while (true) {
+        if (signal && signal.aborted) return;   // 被手动停止：干净收尾
         const { done, value } = await reader.read();
         if (done) break;
         buf += decoder.decode(value, { stream: true });

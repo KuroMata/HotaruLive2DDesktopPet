@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>选择聊天大脑</title>
+<style>
+  :root{
+    --bg:#11151c; --panel:#171d27; --panel2:#1d2431; --line:#2a3342;
+    --text:#e8eef6; --sub:#93a0b5; --accent:#4f9cf9; --accent2:#7bd88f; --warn:#f0b849;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:18px 20px;background:var(--bg);color:var(--text);
+       font-family:"Microsoft YaHei","Segoe UI",system-ui,sans-serif;font-size:13px;line-height:1.6}
+  h1{font-size:16px;margin:0 0 4px;font-weight:600}
+  .lead{color:var(--sub);font-size:12px;margin:0 0 16px}
+  .sec{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px}
+  .sec h2{font-size:13px;margin:0 0 10px;font-weight:600;display:flex;align-items:center;gap:8px}
+  .sec h2 .tag{font-size:11px;color:var(--sub);font-weight:400}
+
+  /* 三张卡片 */
+  .cards{display:flex;flex-direction:column;gap:8px}
+  .card{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line);
+        border-radius:8px;background:var(--panel2);cursor:pointer;transition:border-color .12s,background .12s}
+  .card:hover{border-color:#3a4658}
+  .card.on{border-color:var(--accent);background:#1b2739}
+  .card input{margin-top:3px;accent-color:var(--accent)}
+  .card .t{font-weight:600}
+  .card .d{color:var(--sub);font-size:12px;margin-top:2px}
+  .probe{font-size:11px;margin-top:6px;display:none}
+  .probe.ok{color:var(--accent2);display:block}
+  .probe.bad{color:var(--warn);display:block}
+  .probe.run{color:var(--sub);display:block}
+
+  label.f{display:block;margin-bottom:9px}
+  label.f > span{display:block;color:var(--sub);font-size:11px;margin-bottom:3px}
+  input[type=text],input[type=password],select,textarea{
+    width:100%;padding:6px 8px;background:#0e131b;color:var(--text);
+    border:1px solid var(--line);border-radius:6px;font-size:12px;font-family:inherit}
+  textarea{resize:vertical;min-height:56px;line-height:1.5}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+  .row{display:flex;gap:10px}
+  .row > *{flex:1}
+  .hint{color:var(--sub);font-size:11px;margin-top:6px}
+  .toggle{background:none;border:none;color:var(--accent);cursor:pointer;font-size:12px;padding:0;font-family:inherit}
+  .hidden{display:none}
+
+  footer{display:flex;align-items:center;gap:12px;margin-top:4px}
+  footer .sp{flex:1}
+  .chk{display:flex;align-items:center;gap:6px;color:var(--sub);font-size:12px;cursor:pointer;user-select:none}
+  .chk input{accent-color:var(--accent)}
+  button.go{padding:7px 20px;background:var(--accent);color:#fff;border:none;border-radius:6px;
+            font-size:13px;cursor:pointer;font-family:inherit}
+  button.go:hover{background:#3d8ce8}
+  button.go:disabled{background:#3a4658;cursor:default}
+
+  /* 顶部提示：不知道选哪个先选云端 */
+  .tip{color:var(--sub);font-size:12px;margin:0 0 14px;padding:8px 10px;line-height:1.5;
+       background:rgba(79,156,249,.08);border:1px solid rgba(79,156,249,.28);border-radius:8px}
+  /* 选本地时出现在确认键上方的显存警告 */
+  .local-warn{font-size:11.5px;color:var(--warn);background:rgba(240,184,73,.10);
+       border:1px solid rgba(240,184,73,.32);border-radius:8px;padding:8px 10px;margin-bottom:10px;line-height:1.5}
+  .local-warn.hidden{display:none}
+</style>
+</head>
+<body>
+  <h1>选择聊天大脑</h1>
+  <p class="lead">黑叶萤用哪一套来思考？随时可以在托盘菜单里改回来。</p>
+  <div class="tip">💡 不知道选哪个？建议先选「云端」：联网即用、最聪明，也无需在本地下载模型。</div>
+
+  <div class="sec">
+    <h2>大脑 <span class="tag">三选一</span></h2>
+    <div class="cards" id="cards"></div>
+  </div>
+
+  <div class="sec hidden" id="cloudSec">
+    <h2>云端接口 <span class="tag">OpenAI 兼容格式，DeepSeek / 通义 / Kimi / 智谱 / OpenAI 都能填</span></h2>
+    <label class="f"><span>服务商预设</span>
+      <select id="preset"></select>
+    </label>
+    <label class="f"><span>接口地址（baseUrl）</span>
+      <input type="text" id="baseUrl" placeholder="https://api.deepseek.com/v1">
+    </label>
+    <div class="row">
+      <label class="f"><span>模型名</span><input type="text" id="model" placeholder="deepseek-chat"></label>
+      <label class="f"><span>回复长度上限</span><input type="text" id="maxTokens" placeholder="512"></label>
+    </div>
+    <label class="f"><span>API Key</span>
+      <input type="password" id="apiKey" placeholder="sk-…">
+    </label>
+    <div class="hint">密钥只存在你本机（app/config.json），不上传任何第三方。填好后可点「测一下」确认能用。</div>
+    <div class="probe" id="cloudProbe"></div>
+    <div style="margin-top:8px"><button class="toggle" id="testCloud">测一下</button></div>
+  </div>
+
+  <div class="sec">
+    <h2>人设 <span class="tag"><button class="toggle" id="personaToggle">展开定制 ▾</button></span></h2>
+    <div id="personaBox" class="hidden">
+      <div class="row">
+        <label class="f"><span>他叫什么</span><input type="text" id="charName"></label>
+        <label class="f"><span>性别（影响语气描述）</span>
+          <select id="charGender">
+            <option value="male">男性</option>
+            <option value="female">女性</option>
+            <option value="">其它 / 不强调</option>
+          </select>
+        </label>
+      </div>
+      <div class="row">
+        <label class="f"><span>他怎么称呼你</span><input type="text" id="userTitle" placeholder="博士 / 先生 / 老板"></label>
+        <label class="f"><span>他自称什么</span><input type="text" id="selfTitle" placeholder="萤 / 我 / 属下"></label>
+      </div>
+      <label class="f"><span>与你的关系</span><input type="text" id="relation" placeholder="助理 / 搭档 / 管家"></label>
+      <label class="f"><span>性格（一行一条）</span><textarea id="personality"></textarea></label>
+      <label class="f"><span>语气</span><textarea id="tone" style="min-height:44px"></textarea></label>
+      <label class="f"><span>说话篇幅</span><input type="text" id="speechLen"></label>
+      <label class="f"><span>边界与禁忌（一行一条）</span><textarea id="boundaries"></textarea></label>
+      <label class="f"><span>其它补充</span><textarea id="extra" style="min-height:40px"></textarea></label>
+      <div class="hint">改完点右下角「确定」保存。想恢复默认，删掉 app/data/persona.json 再启动一次即可。</div>
+    </div>
+  </div>
+
+  <div class="local-warn hidden" id="localWarn">
+    ⚠ 本地模型会占用你的显卡显存（退出桌宠或切回云端后才会释放）；首次加载较慢，约需 30–60 秒，请耐心等待。
+  </div>
+  <footer>
+    <label class="chk"><input type="checkbox" id="noAsk"> 下次不再询问</label>
+    <div class="sp"></div>
+    <button class="go" id="go">确定</button>
+  </footer>
+
+<script src="/js/brain-chooser.js"></script>
+</body>
+</html>

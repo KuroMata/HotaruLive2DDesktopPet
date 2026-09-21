@@ -1075,6 +1075,14 @@
       this._emoTarget = EMOTION_PRESETS[name] ? name : 'neutral';
     }
 
+    // 聊天回复用的公开入口：把模型输出的情绪标签直接应用到五官。
+    // 只在表情层开启时才生效（设置里关掉"表情情绪"后聊天也不改脸，尊重用户选择）。
+    setChatEmotion(name) {
+      if (!this._emotionEnabled) return false;
+      this._setEmotionTarget(name);
+      return true;
+    }
+
     setEmotionEnabled(on) {
       this._emotionEnabled = !!on;
       if (window.desktopPet && window.desktopPet.log) {

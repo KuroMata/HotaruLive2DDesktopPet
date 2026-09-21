@@ -380,6 +380,50 @@ body {
   border-style: dashed;
 }
 
+/* 生成中：气泡相对定位以便放「停止思考」；思考提示做轻微呼吸闪烁 */
+.msg.assistant { position: relative; }
+.msg.assistant.thinking .bubble-text {
+  color: var(--text-dim, #9aa3ad);
+  font-style: italic;
+}
+.msg.assistant.thinking {
+  animation: thinkPulse 1.2s ease-in-out infinite;
+}
+@keyframes thinkPulse {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(0.72); }
+}
+
+/* 「停止思考」：仅在鼠标悬停到正在生成的气泡时才浮现（pointer-events 默认关，避免误触） */
+.stop-think {
+  position: absolute;
+  top: -1.5em;
+  right: 4px;
+  font-size: calc(11px * var(--ui-scale, 1));
+  line-height: 1.6;
+  color: #ff9b9b;
+  background: rgba(18, 18, 26, 0.9);
+  border: 1px solid rgba(255, 155, 155, 0.5);
+  border-radius: 6px;
+  padding: 1px 7px;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  opacity: 0;
+  transform: translateY(2px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  pointer-events: none;
+}
+.msg.assistant.generating:hover .stop-think {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.stop-think:hover {
+  background: rgba(255, 155, 155, 0.18);
+  border-color: #ff9b9b;
+}
+
 #status {
   flex: 0 0 auto;
   font-size: calc(11px * var(--ui-scale, 1));
