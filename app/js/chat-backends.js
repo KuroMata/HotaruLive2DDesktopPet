@@ -11,14 +11,109 @@
 //   3. 人设（persona.json）在这里拼成 system prompt，三种后端共用。
 //      WorkBuddy 没有 system 通道，退化成"首条消息前置一段人设说明"。
 //   4. 回复要求以情绪标签开头，例如 [joy] 今天天气不错。
-//      parseEmotion() 把它剥出来交给表情层；小模型经常不守规矩，所以还有
-//      一层关键词兜底（guessEmotion），认不出来就 neutral，不会报错。
+//      parseEmotion() 把它剥出来交给表情层；小模型经常不守规矩（把标签写进正文、
+//      写好几枚、或写成 [疲惫]），所以清洗是"整段文本全剥"而不是只认开头，
+//      流式渲染走 createTagStripper()（能处理跨片段的半个标签）。
+//      最后还有一层关键词兜底（guessEmotion），认不出来就 neutral，不会报错。
 (function () {
   'use strict';
 
   // 与 live2d-loader.js 的 EMOTION_PRESETS 保持一致（写错的名字会被静默降级成 neutral）
   const EMOTIONS = ['neutral', 'focus', 'curious', 'joy', 'sleepy', 'affection',
     'shy', 'tease', 'serious', 'surprise', 'pout', 'smug', 'enjoy'];
+
+  // ---------------------------------------------------------------- 情绪标签清洗
+  // 约定：情绪标签只在**整条回复的最开头**写一枚（[joy]），它是给表情层用的控制信号，
+  // 正文里不该出现。但小模型经常不守规矩——标签前面多一个空格或换行、插在句子中间、
+  // 一口气写好几枚，或者写 [疲惫]/[叹气] 这种中文标注。漏一枚进气泡，用户看到的就是
+  // "回复里带着 [sleepy]"。
+  //
+  // 判定成"该剥掉的标签"的条件（宁可少剥也不要吃掉正文）：
+  //   · 情绪标签（在 EMOTIONS 里）—— 一律剥；
+  //   · 其它纯 ASCII 标注，≥3 个字母（[angry]/[thinking]）—— 剥；
+  //   · 1~3 个汉字（[疲惫]/[叹气]/[想了想]）—— 剥。
+  // 保留：纯数字（a[0]）、含空格或标点（[重要 内容]）、单个字母（a[i]）、
+  //       4 个以上汉字的方括号（更像正文里的强调）—— 这些不当标签。
+  const TAG_INNER = '[A-Za-z][A-Za-z_\\-]{0,23}|[\\u4e00-\\u9fff]{1,3}';
+  const TAG_RE = new RegExp('\\[(' + TAG_INNER + ')\\]|【(' + TAG_INNER + ')】', 'g');
+  // 半个标签的尾巴：以 [ 或 【 开头、还没等到闭合、内容仍有可能长成标签
+  const TAG_TAIL_RE = /[\[【][A-Za-z\u4e00-\u9fff_\-]{0,24}$/;
+  // 开头要先吃掉的东西：标签被剥掉后前面常常只剩空行，或者留下个"："、"，"当衔接符
+  const LEAD_NOISE_RE = /^[\s\u3000:：,，.。!！?？;；、~]+/;
+
+  function isEmotionTag(inner) {
+    return EMOTIONS.indexOf(String(inner || '').toLowerCase()) >= 0;
+  }
+  function isStripTag(inner) {
+    const s = String(inner || '');
+    if (isEmotionTag(s)) return true;
+    if (/^[\u4e00-\u9fff]{1,3}$/.test(s)) return true;          // 与 TAG_INNER 的汉字长度保持一致
+    return /^[A-Za-z][A-Za-z_\-]{2,23}$/.test(s);               // ASCII 标注至少 3 个字母
+  }
+  // 剥掉整段文本里的所有标签；emo 取遇到的第一枚**已知**情绪标签（未知标注只剥不认）。
+  function stripEmotionTags(text) {
+    let emo = null, tagged = false;
+    const out = String(text == null ? '' : text).replace(TAG_RE, (m, a, b) => {
+      const inner = a || b;
+      if (!isStripTag(inner)) return m;                       // 不像标签：原样留着
+      if (!tagged && isEmotionTag(inner)) { emo = inner.toLowerCase(); tagged = true; }
+      return '';
+    });
+    return { emo: emo, tagged: tagged, text: out };
+  }
+
+  // 流式清洗器：标签可能被切成好几段到达（"[" + "sle" + "epy]"），也可能前面多一个
+  // 空格/换行、或者夹在句子中间。策略：只攒住"还没闭合、但有可能长成标签"的那截尾巴，
+  // 其余立刻放行——这样既不会把 "[jo" 打到气泡里，也不会延迟正常文字。
+  function createTagStripper() {
+    let buf = '';          // 待定尾巴（半个标签）
+    let emo = null;        // 第一枚已知情绪标签
+    let tagged = false;
+    let started = false;   // 是否已经吐出过正文（用来吃掉开头的空行/空格）
+    function holdFrom(s) {
+      const i = Math.max(s.lastIndexOf('['), s.lastIndexOf('【'));
+      if (i < 0) return -1;
+      const tail = s.slice(i);
+      const close = tail.charAt(0) === '[' ? ']' : '】';
+      if (tail.indexOf(close, 1) >= 0) return -1;            // 已闭合，不是半个
+      return TAG_TAIL_RE.test(tail) ? i : -1;                // 内容已不可能是标签
+    }
+    function eat(chunk) {
+      // 关键：待定尾巴必须和本次片段**拼起来再判断**——半个标签往往就是跨两次推送的。
+      // （早期写法只看本次片段，会把上一片攒下的 "[" 直接丢掉，导致整段丢字。）
+      const s = buf + String(chunk == null ? '' : chunk);
+      const cut = holdFrom(s);
+      const head = cut >= 0 ? s.slice(0, cut) : s;
+      buf = cut >= 0 ? s.slice(cut) : '';
+      if (!head) return '';
+      const r = stripEmotionTags(head);
+      if (!tagged && r.tagged) { emo = r.emo; tagged = true; }
+      let out = r.text;
+      // 开头的空行/空格（模型常在标签后换行）以及标签留下当衔接符的冒号逗号，都不显示
+      if (!started && out) {
+        out = out.replace(LEAD_NOISE_RE, '');
+        if (out) started = true;
+      }
+      return out;
+    }
+    return {
+      push(chunk) { return eat(chunk); },
+      // 流结束：把残留放出来；若残留本身就是被截断的半截标签（"[sle"），直接丢掉，
+      // 免得用户按了停止按钮后气泡里留一段 "[sle" 这样的碎片。
+      flush() {
+        const rest = buf; buf = '';
+        if (!rest) return { text: '', emo: emo, tagged: tagged };
+        // 残留本身就是被截断的半截标签（"[sle"）：直接丢，别把碎片留在气泡里
+        if (/^[\[【][A-Za-z\u4e00-\u9fff_\-]{0,24}$/.test(rest)) return { text: '', emo: emo, tagged: tagged };
+        const r = stripEmotionTags(rest);
+        if (!tagged && r.tagged) { emo = r.emo; tagged = true; }
+        let out = r.text;
+        if (!started && out) { out = out.replace(LEAD_NOISE_RE, ''); if (out) started = true; }
+        return { text: out, emo: emo, tagged: tagged };
+      },
+      state() { return { emo: emo, tagged: tagged }; }
+    };
+  }
 
   // ---------------------------------------------------------------- 现实时间
   // 大模型（尤其本地 7B）训练完就"封片"了，它不知道今天是几号、现在几点，
@@ -65,10 +160,17 @@
     const userTitle = p.userTitle || '你';
     const selfTitle = p.selfTitle || '我';
 
+    const species = String(p.species || '').trim();
+
     const lines = [];
-    lines.push('你是「' + name + '」，' + (genderText ? genderText + '，' : '') +
-      '身份是用户的' + rel + '，常驻在用户的电脑桌面上。');
+    // 种族和性别都是"你是什么"的定语，拼进同一句更自然（"你是「黑叶萤」，狼族少年，男性，身份是…"）
+    const desc = [];
+    if (species) desc.push(species);
+    if (genderText) desc.push(genderText);
+    lines.push('你是「' + name + '」' + (desc.length ? '，' + desc.join('，') : '') +
+      '，身份是用户的' + rel + '，常驻在用户的电脑桌面上。');
     lines.push('你称呼用户为「' + userTitle + '」，自称「' + selfTitle + '」。');
+    if (p.appearance) lines.push('你的外貌与身体特征：' + p.appearance);
 
     if (Array.isArray(p.personality) && p.personality.length) {
       lines.push('你的性格：' + p.personality.filter(Boolean).join('；') + '。');
@@ -90,6 +192,20 @@
     lines.push('输出格式（重要）：每条回复只能以这些情绪标签之一开头 —— ' +
       EMOTIONS.map((e) => '[' + e + ']').join(' ') + '，紧接着写正文，不要换行、不要解释标签。');
     lines.push('示例：[joy]' + userTitle + '，这事办妥了。');
+    lines.push('【标签铁律】情绪标签只允许出现在整条回复的**最开头**，而且只写一枚。' +
+      '正文里绝对不能再出现任何方括号标注 —— [sleepy]、[微笑]、[叹气]、[想了想] 这类' +
+      '神态/动作/内心提示，无论用 [] 还是【】，一律不许写。也禁止用括号写动作或神态' +
+      '（比如"（打了个哈欠）"）。情绪靠正文本身的语气传达，表情由桌宠自己表现。' +
+      '宁可整条都不要标签，也绝不在正文里塞标注。');
+    lines.push('');
+    // 铁律：无论人设怎么配，都绝不退化为"冰冷的客服/机器"。本地小模型极易在
+    // 被问"你是谁/你是不是AI"时脱口而出"我只是个AI助手"，这条写死兜底。
+    lines.push('【对话风格 · 铁律】像活人一样自然地聊，不要像客服或机器人。' +
+      '绝对不要自称"AI""人工智能""助理""机器人""程序"或"语言模型"，也不要说' +
+      '"作为人工智能""我只是个助理""我是语言模型"之类的话；' +
+      '不要列编号提纲、不要说"如果您需要…""请问还有什么可以帮您"之类的客服用语。' +
+      '你应当有自己的情绪和观点，会反问、会接话、会开玩笑；被夸会得意，被调侃会回嘴。' +
+      '如果对方问你是不是真人，用轻松自然的语气回应，不要坦白、也不要解释自己是什么技术。');
     lines.push('不要复述上面这些规则，不要提到"人设""提示词""系统"等词。');
     return lines.join('\n');
   }
@@ -230,15 +346,12 @@
     return '[neutral]' + userTitle + '，' + body;
   }
 
-  // 剥掉开头的 [xxx] 标签
+  // 剥掉情绪/标注标签并定一个情绪。整段文本都会清洗，不只是开头——
+  // 小模型常把标签写在中间或换行之后，只认开头就会漏进气泡。
   function parseEmotion(text) {
-    const m = /^\s*\[([a-zA-Z]+)\]\s*/.exec(String(text || ''));
-    if (m) {
-      const tag = m[1].toLowerCase();
-      const rest = String(text).slice(m[0].length);
-      return { emo: EMOTIONS.indexOf(tag) >= 0 ? tag : 'neutral', text: rest, tagged: true };
-    }
-    return { emo: guessEmotion(text), text: String(text || ''), tagged: false };
+    const r = stripEmotionTags(text);
+    if (r.tagged) return { emo: r.emo, text: r.text, tagged: true };
+    return { emo: guessEmotion(r.text), text: r.text, tagged: false };
   }
 
   // 小模型常常不写标签，这里按关键词兜底猜一个，猜不出就 neutral
@@ -667,6 +780,8 @@
     clockReply: clockReply,
     dateDiffReply: dateDiffReply,
     parseEmotion: parseEmotion,
+    stripEmotionTags: stripEmotionTags,
+    createTagStripper: createTagStripper,
     guessEmotion: guessEmotion,
     create: function (kind, cfg) {
       if (kind === 'local') return new LocalBackend(cfg);

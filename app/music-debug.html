@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<title>音律识别调试</title>
+<style>
+  :root {
+    --bg: #1b1b1d;
+    --panel: #232427;
+    --panel2: #2b2c30;
+    --line: #38393d;
+    --txt: #e6e6e6;
+    --dim: #9aa0a6;
+    --accent: #58c4ff;
+    --pos: #6fcf73;
+    --neg: #f06a6a;
+    --warn: #ffb347;
+    --violet: #b98cff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--txt);
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; font-size: 13px; }
+  #top { display: flex; align-items: baseline; gap: 10px; padding: 9px 14px; flex-wrap: wrap;
+    background: var(--panel); border-bottom: 1px solid var(--line); }
+  #title { font-weight: 600; font-size: 15px; }
+  #meta { color: var(--dim); font-size: 12px; }
+  #meta b { color: var(--txt); }
+  #meta .live { color: var(--pos); }
+  #meta .stale { color: var(--neg); }
+  .sec { padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .sec h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--dim);
+    text-transform: uppercase; letter-spacing: .04em; }
+  .stage { position: relative; background: #0c0c0e; border: 1px solid var(--line);
+    border-radius: 6px; overflow: hidden; }
+  canvas { display: block; width: 100%; height: auto; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; color: var(--dim); font-size: 11px; }
+  .legend i { display: inline-block; width: 10px; height: 3px; vertical-align: middle;
+    margin-right: 4px; border-radius: 2px; }
+  .stageHint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: var(--dim); font-size: 12px; text-align: center; padding: 14px; line-height: 1.7; }
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 16px; }
+  .kv { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0;
+    border-bottom: 1px dashed #2c2d31; }
+  .kv .k { color: var(--dim); }
+  .kv .v { font-family: Consolas, monospace; color: var(--txt); white-space: nowrap; }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; }
+  .tag.on { background: rgba(111,207,115,.18); color: var(--pos); }
+  .tag.off { background: rgba(154,160,166,.18); color: var(--dim); }
+  .tag.warn { background: rgba(255,179,71,.18); color: var(--warn); }
+  .tag.err { background: rgba(240,106,106,.18); color: var(--neg); }
+  #verdict { line-height: 1.75; }
+  #verdict .row { padding: 2px 0; }
+  #verdict code { color: var(--accent); }
+  .hint { color: var(--dim); font-size: 11px; margin-top: 6px; line-height: 1.6; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+</style>
+</head>
+<body>
+  <div id="top">
+    <span id="title">音律识别调试</span>
+    <span id="meta">等待数据…</span>
+  </div>
+
+  <div class="sec">
+    <h3>声音与起音（最近 ~12 秒）</h3>
+    <div class="stage">
+      <canvas id="cv1" width="680" height="150"></canvas>
+      <div class="stageHint" id="hint1">尚未收到数据。<br>请在托盘菜单「调试 → 音律识别调试」保持本窗打开，<br>再开启音律识别并放一首歌。</div>
+    </div>
+    <div class="legend">
+      <span><i style="background:#58c4ff"></i>能量 energy</span>
+      <span><i style="background:#ffb347"></i>起音阈值 avg×灵敏度</span>
+      <span><i style="background:#6fcf73"></i>律动幅度 amp(=level)</span>
+      <span><i style="background:#f06a6a"></i>起音时刻（每根竖线=检测到一拍）</span>
+    </div>
+    <div class="hint">两条线的关系就是起音检测的全部依据：<b>蓝线冲到橙线之上</b>才算一拍。若蓝线长期贴着/低于橙线，就只会偶尔才有点头 —— 那是起音太稀疏，把「节拍灵敏度」调小即可。</div>
+  </div>
+
+  <div class="sec">
+    <h3>律动因子（写入模型之前）</h3>
+    <div class="stage">
+      <canvas id="cv2" width="680" height="130"></canvas>
+    </div>
+    <div class="legend">
+      <span><i style="background:#58c4ff"></i>连续相位 swing（主体，-1..1）</span>
+      <span><i style="background:#ffb347"></i>每拍一次性点头包络 nodEnv（0..1）</span>
+      <span><i style="background:#b98cff"></i>每拍一次性身体摆动 nodSway（-1..1）</span>
+    </div>
+    <div class="hint">身体晃动＝连续项 swing 为主 + 每拍重音；头部点头＝每拍重音为主 + 小幅连续项。<b>只有橙色竖起来、蓝线是平的时候，看上去就是"偶尔抽动一下"</b>。</div>
+  </div>
+
+  <div class="sec">
+    <h3>实际写入模型的参数（固定刻度 ±10）</h3>
+    <div class="stage">
+      <canvas id="cv3" width="680" height="130"></canvas>
+    </div>
+    <div class="legend">
+      <span><i style="background:#e6e6e6"></i>ParamAngleY（头部俯仰）</span>
+      <span><i style="background:#6fcf73"></i>ParamBodyAngleZ（身体侧摆）</span>
+    </div>
+    <div class="hint">刻度是模型参数的真实量级，不自动放大 —— 所以曲线贴近 0 就是真的没动。身体摆幅 = 摆幅系数 × 4 × amp；若「身体摆幅」被设成 0.1，这里就是一条几乎静止的直线。</div>
+  </div>
+
+  <div class="sec">
+    <h3>当前值</h3>
+    <div class="two">
+      <div class="grid">
+        <div class="kv"><span class="k">总开关 / 采集</span><span class="v" id="v-state">—</span></div>
+        <div class="kv"><span class="k">是否在放歌</span><span class="v" id="v-playing">—</span></div>
+        <div class="kv"><span class="k">当前方案</span><span class="v" id="v-mode">—</span></div>
+        <div class="kv"><span class="k">能量 energy</span><span class="v" id="v-energy">—</span></div>
+        <div class="kv"><span class="k">能量均值 avg</span><span class="v" id="v-avg">—</span></div>
+        <div class="kv"><span class="k">起音阈值</span><span class="v" id="v-thr">—</span></div>
+        <div class="kv"><span class="k">频谱通量 flux</span><span class="v" id="v-flux">—</span></div>
+        <div class="kv"><span class="k">幅度 amp(=level)</span><span class="v" id="v-amp">—</span></div>
+        <div class="kv"><span class="k">峰值包络 peakEnv</span><span class="v" id="v-peak">—</span></div>
+        <div class="kv"><span class="k">相位 phase / swing</span><span class="v" id="v-phase">—</span></div>
+      </div>
+      <div class="grid">
+        <div class="kv"><span class="k">起音次数 / 每秒</span><span class="v" id="v-onset">—</span></div>
+        <div class="kv"><span class="k">最近起音间隔</span><span class="v" id="v-gap">—</span></div>
+        <div class="kv"><span class="k">点头包络 nodEnv</span><span class="v" id="v-nod">—</span></div>
+        <div class="kv"><span class="k">身体重音 nodSway</span><span class="v" id="v-nodsway">—</span></div>
+        <div class="kv"><span class="k">BPM / 是否锁定</span><span class="v" id="v-bpm">—</span></div>
+        <div class="kv"><span class="k">票数 / 帧率</span><span class="v" id="v-vote">—</span></div>
+        <div class="kv"><span class="k">眼睛 闭眼/接管/实值</span><span class="v" id="v-eye">—</span></div>
+        <div class="kv"><span class="k">写入 AngleY / BodyZ</span><span class="v" id="v-write">—</span></div>
+        <div class="kv"><span class="k">音频来源</span><span class="v" id="v-src">—</span></div>
+        <div class="kv"><span class="k">侧车模式</span><span class="v" id="v-ext">—</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <h3>诊断</h3>
+    <div id="verdict"><span class="row">等待数据…</span></div>
+  </div>
+
+  <div class="sec">
+    <h3>参数（可在「设置 → 音律识别」里调）</h3>
+    <div class="two">
+      <div class="grid">
+        <div class="kv"><span class="k">头部起伏幅度 nodStrength</span><span class="v" id="c-nod">—</span></div>
+        <div class="kv"><span class="k">身体摆幅 swayStrength</span><span class="v" id="c-sway">—</span></div>
+        <div class="kv"><span class="k">节拍灵敏度 sensitivity</span><span class="v" id="c-sens">—</span></div>
+      </div>
+      <div class="grid">
+        <div class="kv"><span class="k">A 方案（连续律动）/ 速度</span><span class="v" id="c-a">—</span></div>
+        <div class="kv"><span class="k">B 方案（BPM 锁定）</span><span class="v" id="c-b">—</span></div>
+        <div class="kv"><span class="k">律动速度上限 maxTempo</span><span class="v" id="c-tempo">—</span></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ————————————————————————————— 工具 —————————————————————————————
+    const MAXN = 240;                       // 采样点数（约 12 秒 @ ~15 帧/秒 的上报）
+    const num = (v, d) => (typeof v === 'number' && isFinite(v)) ? v : (d == null ? 0 : d);
+    const $ = (id) => document.getElementById(id);
+    const fx = (v, n) => (typeof v === 'number' && isFinite(v)) ? v.toFixed(n == null ? 2 : n) : '—';
+
+    const cv1 = $('cv1'), cv2 = $('cv2'), cv3 = $('cv3');
+    const metaEl = $('meta'), hint1 = $('hint1');
+    const c1 = cv1.getContext('2d'), c2 = cv2.getContext('2d'), c3 = cv3.getContext('2d');
+
+    let lastT = 0, lastDiag = null;
+    let S = { energy: [], thr: [], amp: [], swing: [], nodEnv: [], nodSway: [], angleY: [], bodyZ: [], onset: [], t: [] };
+    let onsetTimes = [];                    // 最近起音的本地时刻（算"每秒几拍"）
+    let prevOnsetCount = null;
+
+    function push(k, v) { const a = S[k]; a.push(v); if (a.length > MAXN) a.shift(); }
+
+    // ————————————————————————————— 画图 —————————————————————————————
+    function axes(ctx, W, H, lo, hi, unit) {
+      ctx.clearRect(0, 0, W, H);
+      ctx.fillStyle = '#0c0c0e'; ctx.fillRect(0, 0, W, H);
+      ctx.strokeStyle = '#26272b'; ctx.lineWidth = 1;
+      ctx.font = '10px Consolas, monospace'; ctx.fillStyle = '#5e6167';
+      for (let g = 0; g <= 4; g++) {
+        const y = Math.round(H * g / 4) + 0.5;
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+        const val = hi - (hi - lo) * g / 4;
+        ctx.fillText((Math.abs(val) >= 100 ? val.toFixed(0) : val.toFixed(1)) + (unit || ''), 3, y - 2);
+      }
+      // 0 线加粗
+      if (lo < 0 && hi > 0) {
+        const y0 = Math.round(H - (0 - lo) / (hi - lo) * H) + 0.5;
+        ctx.strokeStyle = '#3a3b40';
+        ctx.beginPath(); ctx.moveTo(0, y0); ctx.lineTo(W, y0); ctx.stroke();
+      }
+    }
+    function line(ctx, arr, W, H, lo, hi, color, width) {
+      const n = arr.length; if (n < 2) return;
+      ctx.strokeStyle = color; ctx.lineWidth = width || 1.5;
+      ctx.beginPath();
+      for (let i = 0; i < n; i++) {
+        const x = (i / (MAXN - 1)) * W;
+        const y = H - (arr[i] - lo) / (hi - lo) * H;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    function fillFromZero(ctx, arr, W, H, lo, hi, color) {
+      const n = arr.length; if (n < 2) return;
+      const y0 = H - (0 - lo) / (hi - lo) * H;
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.moveTo(0, y0);
+      for (let i = 0; i < n; i++) ctx.lineTo((i / (MAXN - 1)) * W, H - (arr[i] - lo) / (hi - lo) * H);
+      ctx.lineTo((n - 1) / (MAXN - 1) * W, y0); ctx.closePath(); ctx.fill();
+    }
+
+    function drawCv1() {
+      const W = cv1.width, H = cv1.height;
+      // 纵轴上限取"近期最大值"，保证蓝线与橙线都能看清相对关系（至少给 1 兜底）
+      let mx = 1;
+      for (let i = 0; i < S.energy.length; i++) mx = Math.max(mx, S.energy[i], S.thr[i]);
+      const hi = mx * 1.15;
+      axes(c1, W, H, 0, hi, '');
+      fillFromZero(c1, S.amp.map((v) => v * hi), W, H, 0, hi, 'rgba(111,207,115,.16)');
+      line(c1, S.energy, W, H, 0, hi, '#58c4ff', 1.6);
+      line(c1, S.thr, W, H, 0, hi, '#ffb347', 1.4);
+      // 起音竖线：onset 数组里当前索引处为 1
+      c1.strokeStyle = 'rgba(240,106,106,.75)'; c1.lineWidth = 1;
+      for (let i = 0; i < S.onset.length; i++) {
+        if (!S.onset[i]) continue;
+        const x = Math.round((i / (MAXN - 1)) * W) + 0.5;
+        c1.beginPath(); c1.moveTo(x, 0); c1.lineTo(x, H); c1.stroke();
+      }
+    }
+    function drawCv2() {
+      const W = cv2.width, H = cv2.height;
+      axes(c2, W, H, -1, 1, '');
+      line(c2, S.swing, W, H, -1, 1, '#58c4ff', 1.8);
+      line(c2, S.nodEnv, W, H, -1, 1, '#ffb347', 1.6);
+      line(c2, S.nodSway, W, H, -1, 1, '#b98cff', 1.4);
+    }
+    function drawCv3() {
+      const W = cv3.width, H = cv3.height;
+      axes(c3, W, H, -10, 10, '');
+      line(c3, S.angleY, W, H, -10, 10, '#e6e6e6', 1.6);
+      line(c3, S.bodyZ, W, H, -10, 10, '#6fcf73', 1.8);
+    }
+
+    // ————————————————————————————— 数值面板 —————————————————————————————
+    function setVals(d) {
+      const st = d.state || {}, raw = d.raw || {}, beat = d.beat || {}, bpm = d.bpm || {},
+        ph = d.phase || {}, nod = d.nod || {}, cfg = d.cfg || {}, m = d.model || null, ext = d.ext || {};
+
+      $('v-state').innerHTML = st.enabled
+        ? (st.running ? '<span class="tag on">开启·采集运行</span>' : '<span class="tag warn">开启·未采集</span>')
+        : '<span class="tag off">已关闭</span>';
+      $('v-playing').innerHTML = st.playing ? '<span class="tag on">是</span>' : '<span class="tag off">否</span>';
+      const M = { '-': '—', A: 'A 连续律动', B: 'B BPM 锁定' };
+      $('v-mode').textContent = M[st.mode] || String(st.mode || '—');
+
+      $('v-energy').textContent = fx(raw.energy, 1);
+      $('v-avg').textContent = fx(raw.avg, 1);
+      $('v-thr').textContent = fx(raw.onsetThreshold, 1);
+      $('v-flux').textContent = fx(raw.flux, 1);
+      $('v-amp').textContent = fx(raw.amp, 3);
+      $('v-peak').textContent = fx(raw.peakEnv, 1);
+      $('v-phase').textContent = fx(ph.phase, 3) + ' / ' + fx(ph.swing, 2);
+
+      const perSec = onsetRate();
+      $('v-onset').textContent = num(beat.count, 0) + ' 次 / ' + (perSec == null ? '—' : perSec.toFixed(2) + ' 次');
+      $('v-gap').textContent = (num(beat.lastGapMs, -1) > 0 ? Math.round(beat.lastGapMs) + ' ms' : '—') +
+        (num(beat.lastAgoMs, -1) >= 0 ? '（距今 ' + Math.round(beat.lastAgoMs) + ' ms）' : '');
+      $('v-nod').textContent = fx(nod.env, 2) + (nod.active ? '（进行中 ' + fx(nod.u, 2) + '）' : '（空闲）');
+      $('v-nodsway').textContent = fx(nod.sway, 2);
+      $('v-bpm').textContent = fx(bpm.value, 1) + ' / ' + (bpm.stable ? '已锁定' : '未锁定');
+      $('v-vote').textContent = num(bpm.voteCount, 0) + ' 票（簇内阈值 ' + num(bpm.voteMax, 0) + '）· ' + fx(bpm.fps, 0) + ' 帧/秒';
+      $('v-eye').textContent = fx(cfg.eyeClose, 2) + ' / ' + fx(m && m.eyeBlend, 2) + ' / ' + fx(m && m.eyeVal, 2) +
+        (m && m.eyeWritten ? '（接管中）' : '（已交还）');
+      $('v-write').textContent = m ? (fx(m.angleY, 2) + ' / ' + fx(m.bodyZ, 2)) : '—（模型未接管）';
+      const src = String(cfg.audioSource || '');
+      $('v-src').textContent = src === 'loopback' ? '系统回环（默认输出设备混音）'
+        : (src.indexOf('wasapi:') === 0 ? '输出端点逐端点回环' : (src || '—'));
+      $('v-ext').textContent = st.extMode
+        ? ('是 · peak=' + fx(ext.peak, 2) + ' 起音=' + num(ext.onsets, 0) + ' playing=' + (ext.playing ? '1' : '0'))
+        : '否（浏览器采集）';
+
+      $('c-nod').textContent = fx(cfg.nodStrength, 1);
+      $('c-sway').textContent = fx(cfg.swayStrength, 1);
+      $('c-sens').textContent = fx(cfg.sensitivity, 2);
+      $('c-a').textContent = (cfg.enableA ? '开' : '关') + ' · ' + fx(cfg.aSpeed, 0) + ' BPM';
+      $('c-b').textContent = cfg.enableB ? '开' : '关';
+      $('c-tempo').textContent = fx(cfg.maxTempo, 0) + ' BPM';
+    }
+
+    function onsetRate() {
+      const now = Date.now();
+      onsetTimes = onsetTimes.filter((t) => now - t <= 3000);
+      if (!onsetTimes.length) return null;
+      const span = Math.max(500, now - onsetTimes[0]);
+      return onsetTimes.length / (span / 1000);
+    }
+
+    // ————————————————————————————— 诊断结论 —————————————————————————————
+    // 把"为什么不动"直接写成一句人话——这是这个面板的主要用途。
+    function setVerdict(d) {
+      const st = d.state || {}, raw = d.raw || {}, cfg = d.cfg || {}, m = d.model || null;
+      const out = [];
+      const push = (icon, html) => out.push('<div class="row">' + icon + ' ' + html + '</div>');
+
+      if (st.error) push('❌', '<span style="color:var(--neg)">采集/启动报错：' + st.error + '</span>');
+      if (!st.enabled) { push('⏸', '音律识别总开关是关的。到 <code>设置 → 音律识别</code> 或托盘菜单打开。'); }
+      else if (!st.running) push('⚠', '已开启但采集没跑起来：可能是没授权捕获、或音频来源选错了设备。当前来源：<code>' + (cfg.audioSource || '—') + '</code>');
+      if (st.enabled && st.running && !st.playing) push('🔇', '采集正常，但此刻没听到明显声音（' + fx(raw.amp, 3) + ' 幅度）。放首歌再看。');
+
+      const perSec = onsetRate();
+      if (st.enabled && st.running && st.playing) {
+        if (perSec != null && perSec < 0.8) {
+          push('🥁', '起音很稀疏（约 <b>' + perSec.toFixed(2) + ' 次/秒</b>）：能量很少冲过阈值 ' + fx(raw.onsetThreshold, 1) +
+            '。这是"偶尔抽一下"的直接原因之一 —— 把 <code>节拍灵敏度</code> 从 ' + fx(cfg.sensitivity, 2) + ' 往小调（1.05 最灵敏）。');
+        } else if (perSec != null) {
+          push('🥁', '起音正常（约 <b>' + perSec.toFixed(2) + ' 次/秒</b>），重音踩得到点上。');
+        }
+        if (num(raw.amp, 0) < 0.15) {
+          push('🔈', '律动幅度 amp 只有 ' + fx(raw.amp, 3) + '：声音太轻，或峰值包络还没降下来。动作幅度整体乘的就是它。');
+        }
+        if (num(cfg.swayStrength, 0) < 0.3) {
+          push('🫨', '<b>身体摆幅系数只有 ' + fx(cfg.swayStrength, 2) + '</b>：身体摆动 = 该系数 × 4 × amp，所以现在身体几乎不动。' +
+            '想要"连贯地晃动"，把它调到 <code>1.0</code> 左右（<code>设置 → 音律识别 → 身体摆幅</code>）。');
+        }
+        if (!cfg.enableA && !(cfg.enableB && (d.bpm || {}).stable)) {
+          push('⏹', 'A/B 方案当前都没在跑（A 关着，B 又没锁定 BPM）→ 连续律动被禁止，只剩每拍的一次性点头，看起来就是"偶尔抽动"。建议至少开着 A 方案。');
+        }
+      }
+
+      if (st.enabled && st.running) {
+        if (m) {
+          const flat = Math.abs(num(m.bodyZ, 0)) < 0.2 && Math.abs(num(m.sway, 0)) < 0.2;
+          if (flat) push('📉', '写进模型的 <code>ParamBodyAngleZ</code> 只有 ' + fx(m.bodyZ, 2) + '：身体确实几乎没在动（不是"没送到模型"，是幅度本身就是 0 附近）。');
+          else push('✅', '写进模型：<code>ParamAngleY=' + fx(m.angleY, 2) + '</code>，<code>ParamBodyAngleZ=' + fx(m.bodyZ, 2) + '</code> —— 模型这一侧在正常动。');
+        } else {
+          push('⚠', '追踪器在跑，但渲染层还没有本帧的写入快照（模型未接管，或音律识别刚开启还没走到第一帧）。');
+        }
+      }
+      if (!out.length) push('…', '等待数据…');
+      $('verdict').innerHTML = out.join('');
+    }
+
+    // ————————————————————————————— 主入口 —————————————————————————————
+    function onDiag(d) {
+      if (!d) return;
+      // 诊断用句柄：控制台里 `__musicDiag.n` 能立刻回答"到底收到数据没有"
+      window.__musicDiag = window.__musicDiag || { n: 0, last: null };
+      window.__musicDiag.n++; window.__musicDiag.last = d;
+      lastT = Date.now();
+      lastDiag = d;
+      const st = d.state || {}, raw = d.raw || {}, ph = d.phase || {}, nod = d.nod || {}, m = d.model || null;
+
+      // 起音时刻标记：beat.count 增长即"这一帧检测到一拍"
+      const bc = num((d.beat || {}).count, 0);
+      let onset = 0;
+      if (prevOnsetCount != null && bc > prevOnsetCount) { onset = 1; onsetTimes.push(Date.now()); }
+      prevOnsetCount = bc;
+
+      push('energy', num(raw.energy, 0));
+      push('thr', num(raw.onsetThreshold, 0));
+      push('amp', num(raw.amp, 0));
+      push('swing', num(ph.swing, 0));
+      push('nodEnv', num(nod.env, 0));
+      push('nodSway', num(nod.sway, 0));
+      push('angleY', m ? num(m.angleY, 0) : 0);
+      push('bodyZ', m ? num(m.bodyZ, 0) : 0);
+      push('onset', onset);
+      push('t', lastT);
+
+      const anyData = st.running || st.enabled;
+      hint1.style.display = anyData ? 'none' : 'flex';
+      drawCv1(); drawCv2(); drawCv3();
+      setVals(d);
+      setVerdict(d);
+    }
+
+    function refreshMeta() {
+      const stale = (Date.now() - lastT) > 1200;
+      if (!lastDiag) { metaEl.innerHTML = '等待数据…'; return; }
+      const st = lastDiag.state || {};
+      const perSec = onsetRate();
+      const written = lastDiag.model ? fmtSigned(num(lastDiag.model.bodyZ, 0)) : '—';
+      metaEl.innerHTML = '起音 <b>' + num((lastDiag.beat || {}).count, 0) + '</b> · 约 <b>' +
+        (perSec == null ? '—' : perSec.toFixed(1)) + '</b> 次/秒 · 身体 <b>' + written + '</b> · ' +
+        '<span class="' + (stale ? 'stale' : 'live') + '">' + (stale ? '停滞（追踪器未上报）' : '实时') + '</span>' +
+        (st.running ? '' : ' · <span class="stale">未采集</span>');
+    }
+    function fmtSigned(v) { return (v > 0 ? '+' : '') + v.toFixed(2); }
+
+    if (window.desktopPet && window.desktopPet.on) {
+      window.desktopPet.on('debug:music', onDiag);
+      // 告知主进程"面板已就绪"：主进程会把最近一份快照补发过来，并请追踪器立即补一帧
+      if (window.desktopPet.send) window.desktopPet.send('pet:musicDebugReady');
+    } else {
+      metaEl.textContent = 'desktopPet 不可用（preload 未挂载）';
+    }
+    setInterval(refreshMeta, 500);
+    drawCv1(); drawCv2(); drawCv3();
+  </script>
+</body>
+</html>

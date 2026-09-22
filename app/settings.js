@@ -190,6 +190,8 @@
       items: [
         { key: 'screenTrack.enabled', label: '启用屏幕运动追踪', type: 'toggle',
           help: '开启后桌宠像追鼠标一样盯住屏幕里移动的物体（如视频中快速平移的角色）。\n需要屏幕录制权限（macOS 首次会弹窗授权，拒绝则自动回退关闭）。\n参考：开 / 关' },
+        { key: 'screenTrack.extra', label: '额外牵动参数（屏幕追踪专用）', type: 'extraParams',
+          help: '屏幕追踪默认只牵动眼球(X/Y)与头部(X/Y)。这里可以再指定其它参数跟着屏幕里的运动动——\n想让「头向左转、身体也向左转」，就给 ParamBodyAngleX 加一行、方向选 X、抓眼填合适值即可。\n每行：参数（下拉列出本模型真实存在的全部参数 ID）+ 方向(X/Y) + 抓眼(幅度, 0–8) + 翻转 + 删除。\n· 抓眼 = 该参数对运动的「反映比例」：0 = 不牵动，越大越夸张；每个参数独立可调。\n· 翻转 = 若参数方向与视线相反（如某些模型的眼球 Y），勾上把它反过来。\n· 身体类参数（如 ParamBodyAngleX）会与自带呼吸叠加，不会把呼吸吃掉；头部类参数会与头部偏转叠加。\n注意：本列表只作用于【屏幕追踪】；鼠标追踪用的额外参数在「视线跟随」页单独配置，两者互不影响。\n参考：留空 = 不额外牵动任何参数' },
         { key: 'screenTrack.screenIndex', label: '追踪屏幕', type: 'screenSelect',
           help: '选择屏幕运动追踪要捕捉哪块显示器（多屏时尤其有用）。\n下拉里的编号 1/2/3 与 Windows 显示设置中的"显示器 N"一致。\n点右侧"标识屏幕"按钮，会像 Windows 那样在每块屏上闪出大数字，当前选中的那块会高亮并标"✓已选"。\n参考：显示器 1（主屏）/ 显示器 2 / 显示器 3 …' },
         { key: 'screenTrack.threshold', label: '变化阈值', type: 'range', min: 1, max: 80, step: 1,
@@ -219,8 +221,8 @@
           help: '头部随视线偏转的幅度倍数。\n0 = 头不转（只动眼睛）；1 = 原始幅度；>1 头转得更明显、更“活”。\n鼠标追踪与屏幕运动追踪都受此影响。\n参考：0–2.0，默认 1.0' },
         { key: 'gaze.headSmooth', label: '头部平滑', type: 'range', min: 80, max: 600, step: 10, unit: 'ms',
           help: '头部转动的平滑时间常数。\n越小头部越跟手（转得快）；越大头部越迟钝、越稳（转头缓慢）。\n鼠标追踪与屏幕运动追踪都受此影响。\n参考：80–600 ms，默认 220' },
-        { key: 'gaze.extra', label: '额外追踪参数', type: 'extraParams',
-          help: '默认的追踪只牵动眼球(X/Y)与头部(X/Y)。这里可以再指定其它参数跟着同一视线方向动。\n每行：参数（下拉列出本模型真实存在的全部参数 ID）+ 方向(X/Y) + 幅度(0–8) + 翻转 + 删除。\n例：选 ParamBodyX / ParamBodyY 让身体随视线轻微移动；选 ParamAngleZ 让歪头也跟着转。\n幅度 1 ≈ 与眼球同量级；若参数反向（如眼球 Y），勾「翻转」。\n注意：勾选的参数每帧会被本功能写入，若模型自带动画也驱动同一参数可能互相打架。\n参考：留空 = 不额外牵动任何参数' }
+        { key: 'gaze.extra', label: '额外追踪参数（鼠标追踪 / 通用）', type: 'extraParams',
+          help: '鼠标追踪（及无专用列表时的屏幕追踪）下，除眼球(X/Y)与头部(X/Y)外还想牵动的参数。\n想让「看向左边、身体也向左转」，就给 ParamBodyAngleX 加一行、方向选 X、抓眼填合适值即可。\n每行：参数（下拉列出本模型真实存在的全部参数 ID）+ 方向(X/Y) + 抓眼(幅度, 0–8) + 翻转 + 删除。\n· 抓眼 = 该参数对视线/运动的「反映比例」：0 = 不牵动，越大越夸张；每个参数独立可调。\n· 翻转 = 若参数方向与视线相反（如某些模型的眼球 Y），勾上把它反过来。\n· 身体类参数（如 ParamBodyAngleX）会与自带呼吸叠加，不会把呼吸吃掉；头部类参数会与头部偏转叠加。\n注意：\n· 屏幕追踪想单独牵动参数，请用「屏幕追踪」页的「额外牵动参数」；那份列表非空时，屏幕追踪优先用它。\n· 本列表在屏幕追踪那份为空时作为兜底生效。\n· 勾选的参数每帧会被写入，若模型自带动画也驱动同一参数可能互相打架。\n参考：留空 = 不额外牵动任何参数' }
       ]
     },
     {
@@ -233,9 +235,9 @@
         { key: 'music.eyeClose', label: '闭眼程度', type: 'range', min: 0, max: 1, step: 0.05,
           help: '音律识别时眼睛闭上多少。\n0 = 完全睁眼（不闭眼）；1 = 完全闭眼。\n建议 0.7–0.85（留一条缝，像陶醉地眯着眼）。\n参考：0–1，默认 0.8' },
         { key: 'music.nodStrength', label: '头部起伏幅度', type: 'range', min: 0, max: 3, step: 0.1,
-          help: '头部随节拍上下起伏的幅度（连续正弦，不是每拍抽一下）。\n0 = 头不动（只身体晃+闭眼）；1 = 适中；更大更夸张。\n幅度还会随当前音量自动缩放：歌响晃得大，歌轻轻晃，静音停下。\n参考：0–3，默认 1.0' },
+          help: '头部运动的幅度，由两部分叠加：\n· 连续起伏（小幅，按当前速度连绵不断地摆，对应"跟着音乐晃"）\n· 每拍重音（大幅，检测到一拍就点一次头）\n0 = 头不动（只身体晃+闭眼）；1 = 适中；更大更夸张。\n整体还会随当前音量自动缩放：歌响晃得大，歌轻轻晃，静音停下。\n调之前建议先开「调试 → 音律识别调试」看着波形调，能立刻看到有没有生效。\n参考：0–3，默认 1.0' },
         { key: 'music.swayStrength', label: '身体摆幅', type: 'range', min: 0, max: 3, step: 0.1,
-          help: '身体左右摆动的幅度。真人听歌最明显的是身体在晃，只动头会显得单薄。\n0 = 身体不动（只点头）；1 = 适中；更大更夸张。\n同样随音量自动缩放。\n参考：0–3，默认 1.0' },
+          help: '身体左右摆动的幅度——"跟着音乐晃"最明显的就是它。\n身体摆动 = 本系数 × 4 × 当前音量系数，写进 ParamBodyAngleZ（该参数量级约 ±10）：\n· 0    = 身体不动（只点头）\n· 0.5  ≈ ±2（轻微）\n· 1.0  ≈ ±4（适中，推荐起点）\n· 2~3  ≈ ±8~12（夸张，到量程边缘）\n注意：设成 0.1 这种量级（≈±0.4）在模型上几乎看不出动作，会表现为"只有头偶尔抽一下"。\n调的时候建议开着「调试 → 音律识别调试」，右下角"实际写入模型的参数"会直接告诉你有没有动。\n参考：0–3，默认 1.0' },
         { key: 'music.sensitivity', label: '节拍灵敏度', type: 'range', min: 1.05, max: 3, step: 0.05,
           help: '节拍检测的灵敏度（能量超过滑动均值的倍数才记为一拍）。\n越小越灵敏（轻响也点头，但易受噪声误触）；越大越迟钝（只跟明显的鼓点）。\n参考：1.05–3，默认 1.3' },
         { key: 'music.maxTempo', label: '律动速度上限', type: 'range', min: 40, max: 200, step: 5, unit: 'BPM',
@@ -659,7 +661,10 @@
         const del = document.createElement('button');
         del.type = 'button'; del.className = 'del-btn'; del.textContent = '删除';
         del.addEventListener('click', () => { list.splice(i, 1); commit(); render(); });
-        row.appendChild(pid); row.appendChild(ax); row.appendChild(amp); row.appendChild(ampNum);
+        const ampLabel = document.createElement('label'); ampLabel.className = 'extra-amp-label';
+        ampLabel.textContent = '抓眼';
+        ampLabel.title = '抓眼 = 该参数对视线/运动的反映比例（幅度）。0 = 不牵动；越大越夸张。每个参数独立可调。';
+        row.appendChild(pid); row.appendChild(ax); row.appendChild(ampLabel); row.appendChild(amp); row.appendChild(ampNum);
         row.appendChild(flipWrap); row.appendChild(del);
         box.insertBefore(row, addBtn);
       });

@@ -39,6 +39,12 @@ contextBridge.exposeInMainWorld('desktopPet', {
     try { return ipcRenderer.invoke('pet:getDisplays'); }
     catch (e) { return Promise.resolve({ error: String(e && e.message || e) }); }
   },
+  // 屏幕追踪用：取桌宠自身窗口的屏幕坐标（含尺寸），供渲染进程把"自己"从运动检测里遮罩掉，
+  // 否则透明窗里模型在动会被当成运动物体识别进去。
+  getPetWindowRect: () => {
+    try { return ipcRenderer.invoke('pet:getPetWindowRect'); }
+    catch (e) { return Promise.resolve(null); }
+  },
   // 设置窗：在每个显示器上短暂弹出编号（类似 Windows 显示设置的"标识"），selected 高亮
   identifyDisplays: (selected) => {
     try { return ipcRenderer.invoke('pet:identifyDisplays', selected); }

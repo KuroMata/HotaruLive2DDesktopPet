@@ -93,6 +93,7 @@
       this._mouse = { x: 0, y: 0, inside: false }; // 光标相对窗口中心的归一化坐标(-1..1)，y 向下为正
       this._mouseFollow = true;                     // 鼠标追踪总开关（设置窗/托盘可关；关闭后视线不跟光标，只跟屏幕运动或回正）
       this._gazeX = 0; this._gazeY = 0;            // 平滑后的瞳孔方向
+      this._paramCache = {};                       // 各参数最近一次被写入的目标值（供"额外追踪参数"叠加用）
       this._headX = 0; this._headY = 0;            // 平滑后的头部随视线的偏转
       this._gx = 0; this._gy = 0; this._gz = 0;    // 当前微动作的瞬时偏移（由调度器写入）
       this._blink = { next: 0, active: false, t: 0, phase: 'close', long: false,
@@ -118,6 +119,13 @@
         extra: this._normExtra(gc.extra)
       };
 
+      // —— 屏幕运动追踪专用的"额外牵动参数"（设置 → 屏幕追踪 页配置）——
+      // 结构与 gaze.extra 相同，但只在【屏幕追踪生效】时使用（屏幕追踪启用且该列表非空时优先于 gaze.extra）。
+      // 这样在屏幕追踪里想让"头向左转、身体也向左转"，只需在屏幕追踪页给 ParamBodyAngleX 加一行，
+      // 而不必去改鼠标追踪用的那份列表。
+      const scCfg = (window.__companionConfig && window.__companionConfig.screenTrack) || {};
+      this._screenExtra = this._normExtra(scCfg.extra);
+
       // —— 屏幕运动追踪状态（路线 D：让模型像追鼠标一样盯住画面里移动的物体）——
       // enabled+active 时，_idle 优先以 _screenTrack.(x,y) 作为视线目标，否则退回全局光标/走神。
       // x/y 为归一化方向（右正、下正，范围 -1..1），约定与 _mouse 完全一致，故能直接复用视线/头部管道。
@@ -131,6 +139,9 @@
       this._musicEmo = null;      // 音律识别期间的表情（'enjoy'）；null = 不接管表情。说话时让位给台词情绪
       this._musicEyeBlend = 0;    // 闭眼程度融合系数 0..1：随"是否在放歌"平滑开合，避免突变
       this._musicEyeVal = 1;     // 音律识别下缓动后的眼睛开合（1=全睁，0=全闭）；缓慢趋近设定值，不眨眼不变动
+      // 音律识别**实际写进模型**的参数快照（每帧 _musicTick 更新）。调试面板靠它回答那个
+      // 最关键的问题："追踪器算出来的律动，到底有没有变成模型的参数值"——光看追踪器是看不到的。
+      this._musicLast = null;
       this._lastAngleXBase = 0;   // _idle 算出的头部偏转基线（yaw，转头；点头脉冲不叠加在它上面）
       this._lastAngleYBase = 0;   // _idle 算出的头部俯仰基线（pitch，低头/抬头；点头脉冲叠加其上）
 
@@ -337,6 +348,7 @@
     }
 
     _setParam(id, v) {
+      this._paramCache[id] = v;   // 记下目标值，供"额外追踪参数"在基础管线之后叠加（如身体随视线转时不丢失呼吸）
       const core = this._core();
       if (core && typeof core.setParameterValueById === 'function') { core.setParameterValueById(id, v); return true; }
       const m = this.model;
@@ -498,16 +510,24 @@
       this._setParam('ParamAngleZ', az);
 
       // —— 额外追踪参数：除默认的眼球(XY)/头部(XY)外，用户自选的其它参数也跟随同一视线方向动 ——
-      // 例如选 ParamBodyX/Y 让身体随你看的方向轻微移动；ParamAngleZ 让歪头也跟视线。
-      // base 取平滑后的视线方向（_gazeX/_gazeY，范围 -1..1），乘以每参数独立的幅度 amp；
-      // 视线回正时这些参数自然归零。flip 用于需要“光标在下→参数朝下”反向的参数（如眼球 Y）。
-      const ex = this._gazeCfg.extra;
+      // 例如选 ParamBodyAngleX 让"身体随头转"（头向左时身体也向左）；ParamAngleZ 让歪头也跟视线。
+      // base 取平滑后的视线方向（_gazeX/_gazeY，范围 -1..1），乘以每参数独立的"抓眼/幅度" amp；
+      // 视线回正时这些参数自然归零。flip 用于需要反向的参数（如眼球 Y）。
+      // 叠加而非硬覆盖：若该参数本就由基础管线每帧写入（呼吸/头部），则在其基础上加偏移，
+      // 这样"身体随头转"不会吃掉呼吸摆动；非基础参数则直接设定（不会逐帧累加）。
+      const BASE_GAZE_PARAMS = ['ParamEyeBallX', 'ParamEyeBallY', 'ParamAngleX', 'ParamAngleY', 'ParamAngleZ', 'ParamBodyAngleX', 'ParamBreath'];
+      // 列表选择：屏幕追踪正在生效时，优先用「屏幕追踪」页自己的列表（_screenExtra）；
+      // 否则用「视线跟随」页的通用列表（gaze.extra）。两份互不干扰。
+      const screenModeOn = this._screenTrack.enabled && this._screenTrack.active;
+      const ex = (screenModeOn && this._screenExtra && this._screenExtra.length)
+        ? this._screenExtra : this._gazeCfg.extra;
       if (ex && ex.length) {
         for (let bi = 0; bi < ex.length; bi++) {
           const b = ex[bi];
           if (!b || !b.id || !this._hasParam(b.id)) continue;
           const base = (b.axis === 'y') ? this._gazeY : this._gazeX;
-          const val = (b.flip ? -base : base) * (b.amp != null ? b.amp : 1);
+          let val = (b.flip ? -base : base) * (b.amp != null ? b.amp : 1);
+          if (BASE_GAZE_PARAMS.indexOf(b.id) >= 0) val += (this._paramCache[b.id] || 0);
           this._setParam(b.id, val);
         }
       }
@@ -550,6 +570,9 @@
       if (cfg.headSmooth != null) this._gazeCfg.headSmooth = Math.max(20, Number(cfg.headSmooth));
       if (cfg.extra != null) this._gazeCfg.extra = this._normExtra(cfg.extra);
     }
+
+    // 屏幕追踪专用额外牵动参数（设置 → 屏幕追踪 页）：实时更新；空数组 = 不额外牵动。
+    setScreenExtra(arr) { this._screenExtra = this._normExtra(arr); }
 
     // 归一化「额外追踪参数」列表：只保留 {id, axis, amp, flip}，字段缺失/类型异常时给安全默认，
     // 避免设置窗传入脏数据导致 _idle 每帧抛错。
@@ -595,6 +618,7 @@
         // _musicTick 一停就没人再写它，身体会僵在最后一次摆动的角度。
         this._setParam('ParamBodyAngleZ', 0);
         this._musicEyeBlend = 0;
+        this._musicLast = null;   // 关掉后不再对外报"实际写入值"，免得调试面板显示过期数据
       }
       if (this._music) { if (on) this._music.start(); else this._music.stop(); }
       if (window.desktopPet && window.desktopPet.log) {
@@ -602,8 +626,19 @@
       }
     }
 
-    // 每帧（在表情层 _express 之后调用）：把节拍脉冲写到头部俯仰（点头），并把眼睛压低（闭眼）。
-    // nod：追踪器检测到一个拍子置 1、随后逐帧衰减，对应"点一下头"的短促下点。
+    // 每帧（在表情层 _express 之后调用）：把"连续律动"+"每拍重音"叠加写到头部俯仰与身体侧摆，
+    // 并把眼睛压低（闭眼）。
+    //
+    // 为什么要分两层（这是"听得见音乐却只是偶尔抽一下"的根因）：
+    //   只保留"每拍一次性点头"时，动作**完全由起音触发**。起音检测在响度压缩得厉害的歌上
+    //   只会零星触发几次，于是观感就是"偶尔抽动一下"——没有连贯的晃动。
+    //   此前把那版自由正弦一刀切掉，是因为它在快歌下频率过高被读成抽搐；
+    //   真正的解法不是"取消连续律动"，而是**连续量小幅 + 重音单独加大**：
+    //     · 连续项 swing 由追踪器按当前速度（A 方案 aSpeed / B 方案锁定 BPM）连续推进相位得到，
+    //       慢速平滑，是"连贯地晃动"的主体；
+    //     · 重音项 nodEnv / nodSway 仍是每拍一次性的完整包络，只负责在鼓点上补一脚。
+    //   这样既不会在快歌下变成高频抖动（连续项系数小、且速度被 maxTempo 折半限制），
+    //   也不会在起音稀疏时整段静止。
     // 轴约定（重要）：ParamAngleX = 偏航(yaw) = 左右转头；ParamAngleY = 俯仰(pitch) = 低头/抬头。
     // 所以"点头"必须叠加在 ParamAngleY 上，ParamAngleX 保持视线基线（转头不被点头干扰）。
     // 闭眼：眼开合 = (1 - eyeClose) * 眨眼基线；eyeClose 越大越闭（0.8 ≈ 只留一条缝）。
@@ -611,7 +646,9 @@
       if (!this._musicEnabled || !this._music) return;
       const M = this._music;
       const level = M.getLevel();                                   // A：相对响度 0..1（= 律动幅度；静音→0）
-      const swing = M.getSwing();                                   // B：连续正弦 -1..1（与 BPM 同频，拍点=+1）
+      const swing = M.getSwing ? M.getSwing() : 0;                  // 连续律动 -1..1（按当前速度推进相位；拍点≈+1）
+      const nodEnv = M.getNodEnv ? M.getNodEnv() : 0;               // 序列化点头包络 0..1（neutral→低头→neutral 单峰）
+      const nodSway = M.getNodSway ? M.getNodSway() : 0;            // 序列化身体摆动 -1..1（一次点头内左右摆一个来回）
       const peak = M.getPeak ? M.getPeak() : 0;                     // 重拍脉冲 0..1
       const nodStrength = M.getNodStrength();                       // 头部起伏幅度 0..3
       const swayStrength = M.getSwayStrength ? M.getSwayStrength() : 1; // 身体摆动幅度 0..3
@@ -621,16 +658,20 @@
       // 幅度随响度：歌响→晃得明显，歌轻→轻轻晃，静音→彻底停下（不会空摆）
       const amp = Math.max(0, Math.min(1, level));
 
-      // —— 头部俯仰：连续正弦起伏，而不是"每拍抽一下"——
-      // 符号约定（实测）：负向 ParamAngleY = 低头（同 ParamEyeBallY=-gazeY、_headY=-tgy*6）。
-      // 拍点上 swing=+1 → bob 取负 → 头向下点，拍与拍之间平滑抬起。
-      const bob = -swing * nodStrength * 5 * amp;
+      // —— 头部俯仰：连续正弦(小,底) + 每拍一次性点头(大,重音) ——
+      // 负向 ParamAngleY = 低头（实测）。连续项 2.0 只是让头不至于在拍与拍之间僵住；
+      // 重音项 5.0 才是"跟着鼓点点头"的本体。
+      const headCont = -swing * nodStrength * 2.0 * amp;
+      const headAccent = -nodEnv * nodStrength * 5.0 * amp;
+      const bob = headCont + headAccent;
       this._setParam('ParamAngleX', this._lastAngleXBase || 0);     // 转头保持视线基线，律动不加给 yaw
       this._setParam('ParamAngleY', (this._lastAngleYBase || 0) + bob);
 
-      // —— 身体左右摆（真人听歌最明显的就是身体在晃，光动头会显得单薄/抽风）——
+      // —— 身体左右摆：连续正弦为主体（"连贯地晃动"），每拍再补一次重音 ——
       // 用 ParamBodyAngleZ：该参数空闲；ParamBodyAngleX 已被呼吸占用，不能抢。
-      const sway = swing * swayStrength * 4 * amp;
+      const bodyCont = swing * swayStrength * 4.0 * amp;
+      const bodyAccent = nodSway * swayStrength * 1.5 * amp;
+      const sway = bodyCont + bodyAccent;
       this._setParam('ParamBodyAngleZ', sway);
 
       // —— 眼睛：检测到音乐时缓慢固定到设定开合、绝不眨眼也绝不随拍变动；没声音时缓缓睁开回到常态 ——
@@ -645,13 +686,30 @@
         : this._musicEyeVal + (eyeTarget - this._musicEyeVal) * Math.min(1, dt / 700));
       // 3) 音乐眼接管期间（blend 明显 > 0）：眼睛完全由本值驱动，固定不动、不眨眼；
       //    blend 趋近 0 时停止写眼，交还给正常眨眼/情绪系统（眼睛已缓动回睁，无突变）。
-      if (this._musicEyeBlend > 0.02) {
+      const eyeWritten = this._musicEyeBlend > 0.02;
+      if (eyeWritten) {
         const eo = this._musicEyeVal;
         this._setParam('ParamEyeLOpen', eo);
         this._setParam('ParamEyeROpen', eo);
         this._eyeOpenBase = 1;   // 眨眼基线保持全睁，确保底层眨眼波形不会从下面把眼睛重新打开/抽动
       }
+
+      // 快照本帧**真正写进模型**的值，供"音律识别调试"面板核对（见 getMusicDebug）。
+      this._musicLast = {
+        amp: amp, swing: swing, nodEnv: nodEnv, nodSway: nodSway, peak: peak,
+        headCont: headCont, headAccent: headAccent, bob: bob,
+        bodyCont: bodyCont, bodyAccent: bodyAccent, sway: sway,
+        angleX: this._lastAngleXBase || 0,
+        angleY: (this._lastAngleYBase || 0) + bob,
+        bodyZ: sway,
+        eyeClose: eyeClose, eyeBlend: this._musicEyeBlend || 0, eyeVal: this._musicEyeVal,
+        eyeWritten: eyeWritten, playing: playing,
+        nodStrength: nodStrength, swayStrength: swayStrength
+      };
     }
+
+    // 音律识别调试面板用：返回最近一帧 _musicTick 实际写入模型的参数值（未运行时为 null）。
+    getMusicDebug() { return this._musicLast; }
 
     // 随机微动作：被触发后在 dur 内以 sin 包络(0→1→0)平滑施加一次小幅度姿态偏移
     _gestureUpdate(now) {

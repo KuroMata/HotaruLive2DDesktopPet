@@ -148,6 +148,7 @@ input[type="number"] { width: 96px; min-width: 96px; }
 .extra-params .extra-row input[type="range"] { width: 110px; }
 .extra-params .extra-row .val { min-width: 34px; text-align: right; color: #aef3ff; font-size: 12px; }
 .extra-params .extra-row .flip { display: flex; align-items: center; gap: 4px; color: #9fb0c8; font-size: 12px; cursor: pointer; }
+.extra-params .extra-row .extra-amp-label { color: #9fb0c8; font-size: 12px; white-space: nowrap; cursor: help; }
 .extra-params .add-btn {
   cursor: pointer; font-size: 12.5px; color: #04141a; font-weight: 700; white-space: nowrap;
   background: linear-gradient(135deg, #00e5ff, #1b9fd6);

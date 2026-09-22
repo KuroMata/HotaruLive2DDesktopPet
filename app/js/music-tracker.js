@@ -55,6 +55,15 @@
     let nod = 0;            // 重拍脉冲（0..1，检测到一拍置 1 后逐帧衰减；用于副歌/重拍时短暂睁眼）
     let lastBeat = 0;
 
+    // —— 序列化点头状态机：保证"一次完整点头播完才播下一次"，杜绝高频抖动 ——
+    // 之前头部俯仰用的是自由连续正弦 swing=sin(2π·phase)，频率跟 BPM 走，
+    // 快歌时每秒好几次起伏，观感像抽搐，且不存在"播完一次再下一次"的概念。
+    // 改为：每拍触发一次，从头到位完整播放（neutral→低头→neutral）后，才允许下一拍；
+    // 拍子来太快（仍在点头中）就跳过这次，等播完再接。
+    let nodActive = false;  // 当前是否正在播放一次点头
+    let nodStart = 0;       // 本次点头起始时间（performance.now，毫秒）
+    let nodDurMs = 460;     // 本次点头总时长（毫秒），由拍间隔推算并夹在舒适区间
+
     // —— A+B 混合律动所需状态 ——
     // A（连续律动）：level 是相对响度(0..1)，直接作为动作幅度；听得见的段落才晃，静音自然收敛。
     // B（BPM 锁定）：phase 是按当前速度连续推进的相位，swing = sin(2π·phase) 得到平滑正弦；
@@ -76,6 +85,22 @@
     // 开 loopback 采集并算好 level/bpm/playing/peak，这里只负责轮询取回并推进律动相位。
     let extMode = false, extPoll = null, extPlaying = false, extPeak = 0;
     let lastExtOnsets = 0, prevExtT = 0;
+
+    // —— 调试面板（app/music-debug.html）——
+    // 存在的意义：把"听得见音乐却几乎不动"这类问题从"猜"变成"看"。面板上同时有
+    // 能量/起音阈值/起音时刻、连续相位 swing、一次性点头包络，以及**最终写进模型的参数值**，
+    // 一眼就能分辨是"没检测到拍"、"检测到了但幅度被参数压成 0"、还是"模型根本没收到"。——
+    let _lastDiagSent = 0;        // 限流时间戳
+    let lastDiagPayload = null;   // 最近一份快照（调试窗就绪时补发）
+    let debugOpen = false;        // 调试窗是否开着（开着才发，省 IPC）
+    let debugHeartbeat = null;    // 未采集时的低频心跳：面板也要能显示"为什么没在动"
+    let modelProbe = null;        // 由 app.js 注入：读取 live2d-loader 真正写进模型的参数值
+    let onsetCount = 0;           // 起音累计次数（面板据此算"每秒几拍"）
+    let lastOnsetGapMs = 0;       // 最近一次起音间隔(ms)
+    let lastEnergy = 0;           // 本帧能量（诊断用）
+    let lastFlux = 0;             // 本帧频谱通量（诊断用）
+    let lastFluxCap = 0;          // 通量缓冲容量（诊断用）
+    const DIAG_MIN_MS = 66;       // 限流 ~15fps
 
     // —— 高精度 BPM：起音强度包络（频谱通量）+ 自相关 ——
     // 旧做法（拍间隔取中位数 + 倍频折叠到 60..180）有两个硬伤：
@@ -150,6 +175,7 @@
         const tempo = (bpmStable && bpm > 0) ? bpm : DEFAULT_TEMPO;
         phase += (dtMs / 1000) * (tempo / 60);
         phase -= Math.floor(phase);
+        emitDiag('');   // 侧车模式同样上报（内部限流）
       }).catch(() => {});
     }
 
@@ -347,6 +373,7 @@
         let sum = 0;
         for (let i = 1; i < upto; i++) { const v = freq[i]; sum += v * v; }
         const energy = sum / (upto - 1);
+        lastEnergy = energy;
         const now = performance.now();
 
         // ---- 高精度 BPM：频谱通量（spectral flux）做起音强度序列 ----
@@ -360,8 +387,10 @@
           prevMag[i] = freq[i];
         }
         flux /= (upto - 1);
+        lastFlux = flux;
         fluxBuf.push(flux);
         const cap = Math.max(64, Math.floor((1000 / Math.max(1, avgDt)) * FLUX_WIN_SEC));
+        lastFluxCap = cap;
         while (fluxBuf.length > cap) fluxBuf.shift();
         // 实测帧间隔：setInterval 会抖动，不能假定就是 16ms，否则自相关的 lag→BPM 换算会偏
         if (prevTick) {
@@ -383,6 +412,8 @@
         if (energy > avg * sensitivity && energy > SILENCE_E && (now - lastBeat) > MIN_GAP) {
           const dtBeat = lastBeat ? now - lastBeat : 0;
           lastBeat = now; lastOnsetAt = now;
+          onsetCount++;                              // 诊断：起音累计（面板据此算"每秒几拍"）
+          if (dtBeat > 0) lastOnsetGapMs = dtBeat;
           nod = 1;                                   // 重拍脉冲（用于短暂睁眼）
           if (dtBeat > 0) {
             // 仅记录原始起音间隔，供观测/调试；**不要**在这里估 BPM。
@@ -393,6 +424,14 @@
             // estimateTempo() 调用）全部被跳过 —— 浏览器采集模式下 BPM 永不更新。
             intervals.push(dtBeat);
             if (intervals.length > 12) intervals.shift();
+          }
+          // 序列化点头：当前点头没播完就跳过这次（完整播完再下一次），避免抽搐。
+          // 时长取拍间隔的 ~85%，并夹在 [220,760]ms：既是"一次完整点头"，
+          // 又不会因快歌变成高频抖动；慢歌则播完回到 neutral 等待下一拍。
+          if (!nodActive) {
+            nodActive = true;
+            nodStart = now;
+            nodDurMs = clamp((dtBeat || 500) * 0.85, 220, 760);
           }
           // B：每拍把相位往"最低点(0.25)"轻推 —— 让连续正弦与真实鼓点同频同相，
           // 但保留正弦的平滑（不是每拍抽一下），这正是"合拍却不机械"的关键。
@@ -427,6 +466,8 @@
 
         // 每 500ms 做一次自相关估测（不必每帧做，省算力）
         if (!lastEstAt || now - lastEstAt >= EST_EVERY_MS) { lastEstAt = now; estimateTempo(); }
+
+        emitDiag('');   // 内部按 DIAG_MIN_MS 限流；调试窗没开时是空操作
       } catch (e) {
         log('节拍检测异常：' + (e && e.message || e));
       }
@@ -437,17 +478,21 @@
       if (on === enabled && running === on) return;
       enabled = on;
       if (on) {
+        emitDiag('', true);            // 让调试面板立刻反映"已开启、正在启动采集"
         if (!running) {
           startCapture().then((ok) => {
             running = ok;
             if (!ok) { enabled = false; }
+            emitDiag(ok ? '' : '音频采集未能启动（请确认已授予捕获权限 / 声卡有回环音频）', true);
           });
         }
       } else {
         stopStream();
         running = false;
         nod = 0;
+        nodActive = false;
         log('已停止系统音频采集');
+        emitDiag('', true);            // 立即上报"已关闭"，面板不必等心跳
       }
     }
 
@@ -468,7 +513,11 @@
       if (!enabled && !running) return;
       stopStream();
       running = false;
-      startCapture().then((ok) => { running = ok; if (!ok) enabled = false; });
+      startCapture().then((ok) => {
+        running = ok;
+        if (!ok) enabled = false;
+        emitDiag(ok ? '' : '音频采集未能启动（换来源后启动失败）', true);
+      });
     }
 
     // 切换音频来源（'loopback' 或某个输入设备 deviceId）。若正在采集会立即用新来源重启。
@@ -484,7 +533,22 @@
     function getNod() { return nod; }                    // 重拍脉冲 0..1（兼容旧名；= 下面的 getPeak）
     function getPeak() { return nod; }                   // 重拍脉冲 0..1（副歌/重拍时短暂睁眼用）
     function getLevel() { return level; }                // 相对响度 0..1 = 律动幅度系数（A）
-    function getSwing() { return Math.sin(2 * Math.PI * phase); } // 连续律动 -1..1（B：与 BPM 同频的正弦）
+    function getSwing() { return Math.sin(2 * Math.PI * phase); } // 连续律动 -1..1（B：与 BPM 同频的正弦；已不再驱动可见点头）
+    // 序列化点头包络（头部用）：neutral→低头→neutral 的单峰正弦（0→1→0）。
+    // 在取值时按墙钟现算，渲染帧(60fps)采样也平滑；一次没播完时返回当前进度，播完自动归零。
+    function getNodEnv() {
+      if (!nodActive) return 0;
+      const u = (performance.now() - nodStart) / nodDurMs;
+      if (u >= 1) { nodActive = false; return 0; }
+      return Math.sin(Math.PI * u);
+    }
+    // 序列化点头包络（身体用）：0→1→0→-1→0，一次点头内身体左右摆一个来回，与头部同步。
+    function getNodSway() {
+      if (!nodActive) return 0;
+      const u = (performance.now() - nodStart) / nodDurMs;
+      if (u >= 1) return 0;
+      return Math.sin(2 * Math.PI * u);
+    }
     function getBpm() { return bpmStable ? Math.round(bpm * 10) / 10 : 0; } // 已锁定的 BPM（1 位小数）；0 = 未锁定
     function isBpmStable() { return bpmStable; }
     function getEyeClose() { return eyeClose; }
@@ -504,6 +568,95 @@
     // 用途：决定要不要闭眼陶醉 —— 开着音律识别却没放歌时，不该闭着眼发呆。
     function isPlaying() { return extMode ? extPlaying : ((performance.now() - lastLoudAt) < 1500); }
 
+    // ------------------------------------------------------------------
+    // 调试面板数据源
+    // ------------------------------------------------------------------
+    // 只读地取当前点头包络：不推进状态机（不把 nodActive 置 false）。
+    // 若这里也走 getNodEnv()，调试面板的读取会跟渲染帧抢着结束一次点头。
+    function peekNod() {
+      if (!nodActive) return { active: false, u: 0, env: 0, sway: 0, durMs: nodDurMs };
+      const u = (performance.now() - nodStart) / nodDurMs;
+      if (u >= 1) return { active: false, u: 1, env: 0, sway: 0, durMs: nodDurMs };
+      return { active: true, u: u, env: Math.sin(Math.PI * u), sway: Math.sin(2 * Math.PI * u), durMs: nodDurMs };
+    }
+
+    function emitDiag(error, force) {
+      // 面板没开就不用发（心跳/补发走 force 忽略 debugOpen，见 setDebugOpen）
+      if (!debugOpen && !force) return;
+      const now = Date.now();
+      if (!force && now - _lastDiagSent < DIAG_MIN_MS) return;
+      _lastDiagSent = now;
+      const api = window.desktopPet;
+      if (!api || !api.send) return;
+      const nd = peekNod();
+      const swing = Math.sin(2 * Math.PI * phase);
+      const pnow = performance.now();
+      let model = null;
+      try { model = modelProbe ? modelProbe() : null; } catch (e) { model = null; }
+      const payload = {
+        t: now,
+        state: {
+          enabled: !!enabled,
+          running: !!running,
+          extMode: !!extMode,
+          playing: isPlaying(),
+          mode: getMode(),
+          error: error || ''
+        },
+        cfg: {
+          eyeClose: eyeClose, nodStrength: nodStrength, swayStrength: swayStrength,
+          sensitivity: sensitivity, maxTempo: maxTempo, enableA: !!enableA, enableB: !!enableB,
+          aSpeed: aSpeed, audioSource: String(audioSource == null ? '' : audioSource)
+        },
+        raw: {
+          energy: lastEnergy, avg: avg, flux: lastFlux, level: level, peakEnv: peakEnv,
+          silenceE: SILENCE_E,
+          onsetThreshold: avg * sensitivity,          // 起音判定门槛（能量 > 它才算一拍）
+          amp: Math.max(0, Math.min(1, level))
+        },
+        beat: {
+          count: onsetCount,
+          lastAgoMs: lastOnsetAt ? (pnow - lastOnsetAt) : -1,
+          lastGapMs: lastOnsetGapMs,
+          minGap: MIN_GAP,
+          intervals: intervals.slice(-8)
+        },
+        bpm: {
+          value: bpm, stable: !!bpmStable,
+          votes: bpmVotes.slice(-10), voteCount: bpmVotes.length, voteMax: bpmVoteMax,
+          fps: 1000 / Math.max(1, avgDt), avgDt: avgDt,
+          fluxLen: fluxBuf.length, fluxCap: lastFluxCap,
+          estEveryMs: EST_EVERY_MS, winSec: FLUX_WIN_SEC
+        },
+        phase: { phase: phase, swing: swing },
+        nod: nd,
+        ext: { playing: !!extPlaying, peak: extPeak, onsets: lastExtOnsets },
+        model: model
+      };
+      lastDiagPayload = payload;
+      try { api.send('pet:musicDebug', payload); } catch (e) {}
+    }
+
+    // 调试窗开/关：开着才定期上报；没采集时靠心跳让面板显示"当前为什么不动"
+    function setDebugOpen(on) {
+      debugOpen = !!on;
+      if (debugOpen) {
+        // 心跳走**非强制**的 emitDiag：追踪器正在跑时它会被 66ms 限流吃掉（等于空转），
+        // 只有停着不跑时才会真正每 250ms 发一次 —— 面板这时才能显示"为什么没在动"。
+        if (!debugHeartbeat) debugHeartbeat = setInterval(() => emitDiag(''), 250);
+        emitDiag('', true);   // 开窗第一份立刻给，不等限流/心跳
+      } else if (debugHeartbeat) {
+        clearInterval(debugHeartbeat);
+        debugHeartbeat = null;
+      }
+    }
+    // 立即补发最近一份快照（绕过限流）：调试窗就绪时用，免得空等一个限流周期
+    function forceEmit() {
+      if (lastDiagPayload) { try { window.desktopPet.send('pet:musicDebug', lastDiagPayload); } catch (e) {} }
+      else emitDiag('', true);
+    }
+    function setModelProbe(fn) { modelProbe = (typeof fn === 'function') ? fn : null; }
+
     return {
       start: () => setEnabled(true),
       stop: () => setEnabled(false),
@@ -514,6 +667,8 @@
       getPeak: getPeak,
       getLevel: getLevel,
       getSwing: getSwing,
+      getNodEnv: getNodEnv,
+      getNodSway: getNodSway,
       getBpm: getBpm,
       isBpmStable: isBpmStable,
       getEyeClose: getEyeClose,
@@ -522,7 +677,11 @@
       getMode: getMode,
       isPlaying: isPlaying,
       isEnabled: () => enabled,
-      isActive: () => running
+      isActive: () => running,
+      // —— 调试面板（见文件内"调试面板数据源"一节）——
+      setDebugOpen: setDebugOpen,     // 面板开/关：控制上报与心跳
+      requestDiag: forceEmit,         // 面板就绪时补发最近一份快照
+      setModelProbe: setModelProbe    // 注入"读取实际写入模型的参数值"的回调
     };
   }
 

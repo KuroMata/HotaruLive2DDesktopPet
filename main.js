@@ -231,16 +231,19 @@ normalizeChatConfig();
 // 人设文件：app/data/persona.json。不存在时回落到内置默认（男性助理）。
 const PERSONA_PATH = path.join(APP_DIR, 'data', 'persona.json');
 const PERSONA_DEFAULT = {
-  version: 1,
+  version: 2,
   charName: '黑叶萤',
   charGender: 'male',
+  species: '狼族少年',
+  appearance: '狼族少年，头顶一对狼耳，身后一条狼尾；耳朵和尾巴会随情绪动（高兴时立起、放松时耷下）。',
   relation: '助理',
   userTitle: '博士',
   selfTitle: '萤',
   personality: ['沉稳克制，话不多，但不冷淡', '做事靠谱，答应下来的事一定办到'],
   tone: '干练、平实，像一位长期共事的男性助理：不谄媚，不撒娇，称呼对方用「您」。',
-  speech: { length: '短句为主，一次不超过三句', punctuation: '正常书面标点，不用颜文字', languages: '默认简体中文' },
-  boundaries: ['不主动宣称自己是人工智能', '不替对方做重大决定'],
+  speech: { length: '短句为主，一次不超过三句', punctuation: '正常书面标点，不用颜文字，也不用括号写动作或神态', languages: '默认简体中文' },
+  boundaries: ['不主动宣称自己是人工智能', '不替对方做重大决定',
+    '耳朵和尾巴的反应只能用叙述性的话带出来，绝不能写成方括号或括号里的动作标注'],
   extra: ''
 };
 function readPersona() {
@@ -1503,12 +1506,24 @@ function createWindow() {
 // 单实例锁：避免多次双击产生多个进程抢端口 18765（曾是"双击没反应"的诱因之一）。
 // 第二个实例会把已有窗口提到前台并自行退出。
 // ---------------------------------------------------------------------------
-if (!app.requestSingleInstanceLock()) {
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
   log('another instance already holds the single-instance lock; quit this one');
   app.quit();
 }
 app.on('second-instance', () => {
-  if (winAlive()) { mainWin.show(); mainWin.focus(); }
+  // 用户第二次双击图标时的正确反馈：把"已经存在的那个窗口"提到前台。
+  // 旧实现只处理主窗口：若此刻桌面上只有"选择聊天大脑"窗（启动流程卡在选大脑这一步），
+  // mainWin 仍是 null → 什么都不做 → 双击毫无反应，看起来就像"桌宠打不开了"。
+  const target = firstAliveWindow();
+  if (target) {
+    log('second-instance：把已有窗口提到前台（' + describeWindow(target) + '）');
+    showAndFocus(target, '已有窗口');
+    return;
+  }
+  log('second-instance：当前没有任何窗口，直接启动桌宠');
+  if (server.listening) bootPet();
+  else log('second-instance：本地服务尚未就绪，跳过（本实例稍后会自行建窗）');
 });
 
 // 端口被占用时给出明确日志（而非静默崩溃）
@@ -1520,6 +1535,9 @@ server.on('error', (err) => {
 });
 
 app.whenReady().then(() => {
+  // 本实例已判定为"第二个实例"并决定退出：不要再起静态服务，否则会额外报一条
+  // EADDRINUSE 噪音日志，把真正的退出原因盖住。
+  if (!gotSingleInstanceLock) return;
   server.listen(PORT, '127.0.0.1', () => {
     log('static server on http://127.0.0.1:' + PORT + '/');
     // 预热：后台先把 ACP 端口扫出来，页面 ~1 秒后的 /api/v1/acp/health 就能直接命中
@@ -1536,6 +1554,23 @@ app.whenReady().then(() => {
     // 用户在窗里勾了"下次不再询问"就置 false，之后直接沿用记住的那个。
     if (CONFIG.chat.askEveryStart !== false) {
       openBrainChooser(() => bootPet());
+      // 两道兜底，避免"选择窗没显示出来 / 用户没回应"时，程序静默地一个窗口都没有
+      // （旧版就是这样把自己卡死的：进程在跑、桌面空白、双击图标还没反应，只能强杀）。
+      // 1) 4s 内选择窗仍未可见 → 直接启动桌宠；选择窗继续留着，用户仍可随时改。
+      setTimeout(() => {
+        if (winAlive()) return;
+        if (!brainWin || brainWin.isDestroyed() || !brainWin.isVisible()) {
+          log('选择窗 4s 内未显示，直接启动桌宠（避免"无窗口"死锁态）');
+          bootPet();
+        }
+      }, 4000);
+      // 2) 60s 内始终没做出选择 → 用已保存的大脑启动，不留一个空白桌面。
+      brainChooserWatchdog = setTimeout(() => {
+        brainChooserWatchdog = null;
+        if (winAlive()) return;
+        log('选择窗 60s 内未完成选择，改用已保存的大脑（' + CONFIG.chat.backend + '）启动桌宠');
+        bootPet();
+      }, 60000);
     } else {
       bootPet();
     }
@@ -1544,10 +1579,22 @@ app.whenReady().then(() => {
 
 // 桌宠主窗口 + 托盘。之所以抽出来：选择窗关掉之后才建主窗口，
 // 这样"选大脑"这一步不会被桌宠窗口抢焦点。
+// 注意：本函数会被多个入口调用（选择窗回调、启动兜底定时器、second-instance），
+// 因此必须幂等（winAlive 早返回）且绝不能抛出去——它常处在事件回调里，抛错会变成"莫名没有窗口"。
 function bootPet() {
+  if (brainChooserWatchdog) { clearTimeout(brainChooserWatchdog); brainChooserWatchdog = null; }
+  // 退出流程中绝不建窗：关掉选择窗会触发 closed → 回调 → bootPet，
+  // 若此刻正在退出，新建的桌宠窗口会让进程退不干净（残留实例还会一直占着单实例锁，
+  // 导致下次双击图标"毫无反应"）。这是"关掉后再打开打不开"的成因之一。
+  if (app.isQuiting) { log('bootPet：正在退出，跳过建窗'); return; }
   if (winAlive()) return;
-  createWindow();
-  createTray();
+  try {
+    createWindow();
+    createTray();
+  } catch (e) {
+    log('bootPet 失败（创建桌宠窗口/托盘时抛错）：' + ((e && e.stack) || e));
+    return;
+  }
   // 主窗口加载完会把当前大脑下发一次（见 createWindow 的 did-finish-load）
 }
 
@@ -1660,6 +1707,11 @@ let mainWin = null;
 let tray = null;
 let debugWin = null;
 let settingsWin = null;
+let screenDebugWin = null;   // 屏幕追踪调试面板窗口（独立窗口，实时可视化识别到的物体）
+let lastScreenDiag = null;    // 最近一帧屏幕追踪检测实况（调试窗就绪后补发给它，避免首帧收不到画面）
+let musicDebugWin = null;    // 音律识别调试面板窗口（实时可视化能量/起音/律动波形/实际写入的模型参数）
+let lastMusicDiag = null;    // 最近一份音律识别诊断快照（调试窗就绪后补发，避免首帧空白）
+let brainChooserWatchdog = null;  // 启动时"选大脑"未回应/未显示的兜底定时器（确保桌宠最终一定会被拉起来）
 // 屏幕运动追踪开关（托盘菜单勾选态的唯一来源；渲染进程的追踪器实启停后回传 pet:screenTrackState 同步）
 let screenTrackState = { enabled: !!(CONFIG.screenTrack && CONFIG.screenTrack.enabled) };
 // 鼠标追踪总开关（默认开；关闭后视线不跟光标，只跟屏幕运动或回正）
@@ -1672,16 +1724,92 @@ let musicState = { enabled: !!(CONFIG.music && CONFIG.music.enabled) };
 // （表现为系统错误音 + 托盘菜单不再弹出 + 托盘/进程残留）。统一用此判定兜底。
 function winAlive() { return !!mainWin && !mainWin.isDestroyed(); }
 
+// ---------------------------------------------------------------------------
+// 窗口显示/前置的统一收口。
+// 教训：只调 win.focus() 是不够的——若目标窗口还处于"隐藏/最小化"状态，focus 不会让它
+// 出现，用户看到的就是"点了设置却没反应"。这里保证"先恢复、再显示、再置顶、最后聚焦"。
+// ---------------------------------------------------------------------------
+function showAndFocus(win, tag) {
+  if (!win || win.isDestroyed()) return false;
+  const wasVisible = (() => { try { return win.isVisible(); } catch (e) { return false; } })();
+  try { if (win.isMinimized()) win.restore(); } catch (e) {}
+  try { if (!win.isVisible()) win.show(); } catch (e) {}
+  try { win.moveTop(); } catch (e) {}
+  try { win.focus(); } catch (e) {}
+  try {
+    const nowVisible = win.isVisible();
+    if (!wasVisible || !nowVisible) log(tag + '：显示窗口 visible=' + nowVisible + '（此前 ' + wasVisible + '）');
+  } catch (e) {}
+  return true;
+}
+// 当前还活着的窗口里最"该被提到前台"的一个（主窗口优先，其次设置/选择/调试窗）
+function firstAliveWindow() {
+  const cands = [mainWin, settingsWin, brainWin, debugWin, screenDebugWin, musicDebugWin];
+  for (let i = 0; i < cands.length; i++) {
+    const w = cands[i];
+    try { if (w && !w.isDestroyed()) return w; } catch (e) {}
+  }
+  return null;
+}
+function describeWindow(win) {
+  try {
+    if (!win || win.isDestroyed()) return '(已销毁)';
+    return 'url=' + win.webContents.getURL() + ' visible=' + win.isVisible();
+  } catch (e) { return '(未知)'; }
+}
+// 托盘菜单里"需要新建窗口"的动作统一延后一帧执行：菜单仍处于展开（模态消息循环）时同步
+// new BrowserWindow，Windows 无法完成前台焦点转移，表现为系统错误音 + 窗口不弹出 + 托盘
+// 右键失灵（只能强杀进程）。与「退出」项同理。
+function deferMenuAction(fn, tag) {
+  setTimeout(() => {
+    try { fn(); }
+    catch (e) { log('[托盘菜单] ' + tag + ' 执行失败：' + ((e && e.stack) || e)); }
+  }, 60);
+}
+
+// ---------------------------------------------------------------------------
+// 把子窗口（设置/调试/选择）摆到"桌宠旁边"。
+// 教训：Electron 默认把新窗口居中到主显示器。本机主屏是 3440×1440 的超宽屏、桌宠停在最右侧
+// （x≈2872），而居中的设置窗会出现在 x≈1330 —— 也就是用户视野的左半边。用户盯着桌宠点"设置"，
+// 却什么都没看到，这就是"设置窗口弹不出来"的真实观感。改成紧贴桌宠（优先左侧，放不下则右侧，
+// 再不行才居中），并把结果夹回工作区，保证一定出现在用户当前看的地方。
+// 没有桌宠窗口时（如启动时的"选择聊天大脑"）退回"在光标所在屏居中"。
+// ---------------------------------------------------------------------------
+function placeNearPet(win, w, h) {
+  if (!win || win.isDestroyed()) return false;
+  const GAP = 16;
+  try {
+    let ref = null;
+    if (winAlive()) { try { ref = mainWin.getBounds(); } catch (e) { ref = null; } }
+    const disp = ref ? screen.getDisplayMatching(ref) : screen.getPrimaryDisplay();
+    const wa = disp.workArea;
+    let x, y;
+    if (ref) {
+      x = ref.x - w - GAP;                                  // 1) 贴左侧
+      if (x < wa.x) x = ref.x + ref.width + GAP;            // 2) 左侧放不下 → 贴右侧
+      if (x + w > wa.x + wa.width) x = Math.round(ref.x + (ref.width - w) / 2);  // 3) 都不行 → 与桌宠同中心
+      y = Math.round(ref.y + (ref.height - h) / 2);         // 与桌宠垂直对齐
+    } else {
+      x = Math.round(wa.x + (wa.width - w) / 2);            // 无桌宠 → 该屏居中
+      y = Math.round(wa.y + (wa.height - h) / 2);
+    }
+    x = Math.max(wa.x, Math.min(x, wa.x + wa.width - w));
+    y = Math.max(wa.y, Math.min(y, wa.y + wa.height - h));
+    win.setBounds({ x: Math.round(x), y: Math.round(y), width: w, height: h });
+    return true;
+  } catch (e) { return false; }
+}
+
 // 参数调试面板：独立的、不透明、常驻窗口，实时列出模型全部参数（名称/当前值/范围/可视化）。
 // 主进程只负责"建窗 + 把渲染进程上报的快照转发进来"，真正的参数读取在 live2d-loader 里完成。
 function createDebugWindow() {
-  if (debugWin && !debugWin.isDestroyed()) { try { debugWin.focus(); } catch (e) {} return; }
+  if (debugWin && !debugWin.isDestroyed()) { showAndFocus(debugWin, '参数调试面板(已存在)'); return; }
   const dw = new BrowserWindow({
     width: 720, height: 760,
     minWidth: 420, minHeight: 320,
     title: 'Live2D 参数调试面板',
     backgroundColor: '#1e1e1e',
-    show: true,
+    show: false,   // 与屏幕追踪调试一致：菜单关闭后再显示，避免抢前台触发错误音/卡死
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -1690,13 +1818,22 @@ function createDebugWindow() {
     }
   });
   dw.loadURL('http://127.0.0.1:' + PORT + '/debug.html');
-  dw.once('ready-to-show', () => { try { dw.show(); } catch (e) {} });
+  placeNearPet(dw, 720, 760);
+  // 与设置窗一致的显示三重保险（ready-to-show / did-finish-load / 超时兜底）
+  dw.once('ready-to-show', () => showAndFocus(dw, '参数调试面板(ready-to-show)'));
+  dw.webContents.once('did-finish-load', () => showAndFocus(dw, '参数调试面板(did-finish-load)'));
+  dw.on('did-fail-load', (_e, code, desc) => {
+    log('参数调试面板加载失败 code=' + code + ' ' + desc + '（仍强制显示窗口）');
+    showAndFocus(dw, '参数调试面板(did-fail-load)');
+  });
+  setTimeout(() => { if (!dw.isDestroyed()) showAndFocus(dw, '参数调试面板(超时兜底)'); }, 1500);
   dw.on('closed', () => {
     debugWin = null;
     // 窗口被关掉即停止上报，并复位调试模式（托盘再次点击会重新打开并重新启动上报）
     if (winAlive()) mainWin.webContents.send('pet:setDebugMode', false);
   });
   debugWin = dw;
+  log('debug window created');
 }
 
 function toggleDebugPanel() {
@@ -1705,21 +1842,24 @@ function toggleDebugPanel() {
     debugWin = null;
     if (winAlive()) mainWin.webContents.send('pet:setDebugMode', false);
   } else {
-    createDebugWindow();
-    if (winAlive()) mainWin.webContents.send('pet:setDebugMode', true);
+    // 延后到托盘菜单关闭后创建（与屏幕追踪调试、退出项一致），避免菜单模态循环里同步建窗抢前台
+    setTimeout(() => {
+      try { createDebugWindow(); if (winAlive()) mainWin.webContents.send('pet:setDebugMode', true); }
+      catch (e) { console.error('[debug] 创建窗口失败：', e && e.stack || e); }
+    }, 60);
   }
 }
 
-// 设置窗口：独立的不透明窗口，渲染 app/settings.html（由本地静态服务托管）。
-// 复用与调试面板相同的 preload（contextBridge 已暴露 getConfig/setConfig）。
-function openSettings() {
-  if (settingsWin && !settingsWin.isDestroyed()) { try { settingsWin.focus(); } catch (e) {} return; }
-  const sw = new BrowserWindow({
-    width: 780, height: 620,
-    minWidth: 560, minHeight: 440,
-    title: '黑叶萤桌宠 · 设置',
-    backgroundColor: '#11151c',
-    show: true,
+// 屏幕追踪调试面板：独立窗口，实时可视化"屏幕运动追踪"识别到的物体与各自状态。
+// 渲染进程的追踪器每帧把检测实况经 pet:screenTrackDebug 发来，这里转发进窗口。
+function createScreenDebugWindow() {
+  if (screenDebugWin && !screenDebugWin.isDestroyed()) { showAndFocus(screenDebugWin, '屏幕追踪调试(已存在)'); return; }
+  const dw = new BrowserWindow({
+    width: 560, height: 720,
+    minWidth: 420, minHeight: 420,
+    title: '屏幕追踪调试',
+    backgroundColor: '#1b1b1d',
+    show: false,   // 关键：先不显示；等 ready-to-show 再 show，避免在托盘菜单还展开时抢前台触发系统错误音 + 卡死消息泵
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -1727,10 +1867,133 @@ function openSettings() {
       preload: path.join(__dirname, 'preload.js')
     }
   });
+  dw.loadURL('http://127.0.0.1:' + PORT + '/screen-debug.html');
+  placeNearPet(dw, 560, 720);
+  // 显示三重保险：ready-to-show / did-finish-load / 1.5s 超时兜底，任一先到即显示，
+  // 免得窗口"凭空消失"让用户以为没反应。
+  dw.once('ready-to-show', () => showAndFocus(dw, '屏幕追踪调试(ready-to-show)'));
+  dw.webContents.once('did-finish-load', () => showAndFocus(dw, '屏幕追踪调试(did-finish-load)'));
+  dw.on('did-fail-load', (_e, code, desc) => {
+    log('屏幕追踪调试页加载失败 code=' + code + ' ' + desc + '（仍强制显示窗口）');
+    showAndFocus(dw, '屏幕追踪调试(did-fail-load)');
+  });
+  setTimeout(() => { if (!dw.isDestroyed()) showAndFocus(dw, '屏幕追踪调试(超时兜底)'); }, 1500);
+  dw.on('closed', () => { screenDebugWin = null; });
+  screenDebugWin = dw;
+  log('screen debug window created');
+}
+function toggleScreenDebugPanel() {
+  if (screenDebugWin && !screenDebugWin.isDestroyed()) {
+    try { screenDebugWin.close(); } catch (e) {}
+    screenDebugWin = null;
+    return;
+  }
+  // 关键：把窗口创建延后到托盘菜单关闭之后（约一帧），否则在菜单模态循环里同步 new BrowserWindow
+  // 会让 Windows 无法转移前台焦点，表现为：系统错误音 + 窗口不弹出 + 托盘右键失灵 + 需强杀进程。
+  // 这与"退出"项的延时写法一致（见退出项注释）。
+  try {
+    setTimeout(() => {
+      try { createScreenDebugWindow(); }
+      catch (e) { console.error('[screen-debug] 创建窗口失败：', e && e.stack || e); }
+    }, 60);
+  } catch (e) {
+    console.error('[screen-debug] toggle 失败：', e && e.stack || e);
+  }
+}
+
+// 音律识别调试面板：独立窗口，实时可视化"音频分析 → 律动 → 写进模型的参数"这条链。
+// 渲染进程的追踪器周期性经 pet:musicDebug 发来快照，这里转发进窗口；窗口开/关时通知主窗口，
+// 由它转告追踪器（追踪器只在面板开着时才上报 + 跑心跳，没开就不占 IPC）。
+function createMusicDebugWindow() {
+  if (musicDebugWin && !musicDebugWin.isDestroyed()) { showAndFocus(musicDebugWin, '音律识别调试(已存在)'); return; }
+  const dw = new BrowserWindow({
+    width: 680, height: 800,
+    minWidth: 480, minHeight: 480,
+    title: '音律识别调试',
+    backgroundColor: '#1b1b1d',
+    show: false,   // 先不显示，等 ready-to-show 再 show：避免托盘菜单仍展开时抢前台触发系统错误音
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
+      preload: path.join(__dirname, 'preload.js')
+    }
+  });
+  dw.loadURL('http://127.0.0.1:' + PORT + '/music-debug.html');
+  placeNearPet(dw, 680, 800);
+  dw.once('ready-to-show', () => showAndFocus(dw, '音律识别调试(ready-to-show)'));
+  dw.webContents.once('did-finish-load', () => showAndFocus(dw, '音律识别调试(did-finish-load)'));
+  dw.on('did-fail-load', (_e, code, desc) => {
+    log('音律识别调试页加载失败 code=' + code + ' ' + desc + '（仍强制显示窗口）');
+    showAndFocus(dw, '音律识别调试(did-fail-load)');
+  });
+  setTimeout(() => { if (!dw.isDestroyed()) showAndFocus(dw, '音律识别调试(超时兜底)'); }, 1500);
+  dw.on('closed', () => {
+    musicDebugWin = null;
+    if (winAlive()) { try { mainWin.webContents.send('pet:musicDebugOpen', false); } catch (e) {} }
+  });
+  musicDebugWin = dw;
+  // 告知主窗口（→追踪器）：面板已开，开始上报 + 心跳
+  if (winAlive()) { try { mainWin.webContents.send('pet:musicDebugOpen', true); } catch (e) {} }
+  log('music debug window created');
+}
+function toggleMusicDebugPanel() {
+  if (musicDebugWin && !musicDebugWin.isDestroyed()) {
+    try { musicDebugWin.close(); } catch (e) {}
+    musicDebugWin = null;
+    return;
+  }
+  // 与屏幕追踪调试完全一致：延后到菜单关闭后再建窗，否则菜单模态循环里同步建窗会抢不到前台焦点。
+  try {
+    setTimeout(() => {
+      try { createMusicDebugWindow(); }
+      catch (e) { console.error('[music-debug] 创建窗口失败：', e && e.stack || e); }
+    }, 60);
+  } catch (e) {
+    console.error('[music-debug] toggle 失败：', e && e.stack || e);
+  }
+}
+
+// 设置窗口：独立的不透明窗口，渲染 app/settings.html（由本地静态服务托管）。
+// 复用与调试面板相同的 preload（contextBridge 已暴露 getConfig/setConfig）。
+function openSettings() {
+  if (settingsWin && !settingsWin.isDestroyed()) {
+    // 旧实现这里只 focus()：若窗口被最小化或仍卡在隐藏态，focus 不会让它出现，
+    // 用户看到的就是"点设置毫无反应"。改为统一走 showAndFocus（恢复+显示+置顶+聚焦）。
+    showAndFocus(settingsWin, '设置窗(已存在)');
+    return;
+  }
+  const SW = 780, SH = 620;
+  const sw = new BrowserWindow({
+    width: SW, height: SH,
+    minWidth: 560, minHeight: 440,
+    title: '黑叶萤桌宠 · 设置',
+    backgroundColor: '#11151c',
+    show: false,   // 避免在托盘菜单展开时同步抢前台触发错误音/卡死（与调试面板一致）
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
+      preload: path.join(__dirname, 'preload.js')
+    }
+  });
+  // 开在"桌宠旁边"（而不是主显示器正中）：超宽屏/多屏下默认居中会跑到用户视野之外，
+  // 看起来就像"点了设置没反应"。详见 placeNearPet 的说明。
+  placeNearPet(sw, SW, SH);
   sw.loadURL('http://127.0.0.1:' + PORT + '/settings.html');
-  sw.once('ready-to-show', () => { try { sw.show(); } catch (e) {} });
+  // 三重保险：ready-to-show / did-finish-load / 1.5s 超时兜底——任一先到即显示。
+  // 只要其中任一环节在个别环境下不触发，窗口就会永远停在隐藏态（"弹不出来"），
+  // 因此这里不再依赖单一事件。
+  sw.once('ready-to-show', () => showAndFocus(sw, '设置窗(ready-to-show)'));
+  sw.webContents.once('did-finish-load', () => showAndFocus(sw, '设置窗(did-finish-load)'));
+  sw.on('did-fail-load', (_e, code, desc) => {
+    log('设置窗页面加载失败 code=' + code + ' ' + desc + '（仍强制显示窗口，便于看到错误）');
+    showAndFocus(sw, '设置窗(did-fail-load)');
+  });
+  setTimeout(() => { if (!sw.isDestroyed()) showAndFocus(sw, '设置窗(超时兜底)'); }, 1500);
   sw.on('closed', () => { settingsWin = null; });
   settingsWin = sw;
+  log('settings window created');
 }
 
 // ---------------------------------------------------------------------------
@@ -1743,7 +2006,7 @@ function openSettings() {
 let brainWin = null;
 let brainCb = null;
 function openBrainChooser(onDone) {
-  if (brainWin && !brainWin.isDestroyed()) { try { brainWin.focus(); } catch (e) {} return; }
+  if (brainWin && !brainWin.isDestroyed()) { showAndFocus(brainWin, '选择窗(已存在)'); return; }
   brainCb = onDone || null;
   const w = new BrowserWindow({
     width: 520, height: 720,
@@ -1751,7 +2014,7 @@ function openBrainChooser(onDone) {
     title: '选择聊天大脑',
     backgroundColor: '#11151c',
     autoHideMenuBar: true,
-    show: true,
+    show: false,   // 避免在托盘菜单展开时同步抢前台触发错误音/卡死（与调试面板一致）
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -1759,13 +2022,24 @@ function openBrainChooser(onDone) {
       preload: path.join(__dirname, 'preload.js')
     }
   });
+  // 同设置窗：摆在桌宠旁边（无桌宠时该屏居中）
+  placeNearPet(w, 520, 720);
   w.loadURL('http://127.0.0.1:' + PORT + '/brain-chooser.html');
-  w.once('ready-to-show', () => { try { w.show(); w.focus(); } catch (e) {} });
+  // 与设置窗一致的三重保险：任一事件/超时先到即显示，避免窗口卡在隐藏态导致
+  // "桌面空白 + 没有桌宠"这种只能强杀进程的死锁态。
+  w.once('ready-to-show', () => showAndFocus(w, '选择窗(ready-to-show)'));
+  w.webContents.once('did-finish-load', () => showAndFocus(w, '选择窗(did-finish-load)'));
+  w.on('did-fail-load', (_e, code, desc) => {
+    log('选择窗页面加载失败 code=' + code + ' ' + desc + '（仍强制显示窗口）');
+    showAndFocus(w, '选择窗(did-fail-load)');
+  });
+  setTimeout(() => { if (!w.isDestroyed()) showAndFocus(w, '选择窗(超时兜底)'); }, 1500);
   w.on('closed', () => {
     brainWin = null;
     if (brainCb) { const cb = brainCb; brainCb = null; cb(null); }
   });
   brainWin = w;
+  log('brain chooser window created');
 }
 function closeBrainChooser(result) {
   const cb = brainCb;
@@ -1813,7 +2087,8 @@ function buildTrayMenu() {
     { type: 'separator' },
     {
       label: '切换聊天大脑…（当前：' + brainLabel() + '）',
-      click: () => openBrainChooser(() => pushBrain(true))
+      // 延后到菜单关闭后再建窗，避免菜单模态循环里同步建窗抢前台（错误音/窗口不弹/托盘失灵）
+      click: () => deferMenuAction(() => openBrainChooser(() => pushBrain(true)), '切换聊天大脑')
     },
     { type: 'separator' },
     {
@@ -1834,6 +2109,14 @@ function buildTrayMenu() {
         {
           label: '参数调试面板',
           click: () => { toggleDebugPanel(); }
+        },
+        {
+          label: '屏幕追踪调试',
+          click: () => { toggleScreenDebugPanel(); }
+        },
+        {
+          label: '音律识别调试',
+          click: () => { toggleMusicDebugPanel(); }
         },
         {
           label: '口型调试',
@@ -1859,7 +2142,9 @@ function buildTrayMenu() {
     },
     {
       label: '设置…',
-      click: () => { openSettings(); }
+      // 延后到菜单关闭后再建窗（原因同上）。这是用户最常点的入口，
+      // 同步建窗会表现为"点了设置窗口弹不出来"，且之后托盘菜单还会失灵。
+      click: () => deferMenuAction(() => openSettings(), '设置')
     },
     { type: 'separator' },
     {
@@ -1917,14 +2202,32 @@ ipcMain.handle('pet:getScreenSources', async () => {
       types: ['screen'],
       thumbnailSize: { width: 1, height: 1 }   // 只要 id，不生成缩略图，省开销
     });
-    return sources.map((s) => ({ id: s.id, name: s.name, display_id: s.display_id }));
+    const all = screen.getAllDisplays();
+    // 关键修复：desktopCapturer 的源顺序与 screen.getAllDisplays() 在 Windows 下并不一致，
+    // 若直接按数组下标对应，会导致"设置里选屏幕1、实际却捕捉屏幕2"之类的错位。
+    // 这里按 display_id 把 desktopCapturer 源对齐到 screen API 的显示器顺序，
+    // 使得 sources[k].id 正对应设置下拉里标注的"显示器 k+1"，追踪器 sources[screenIndex] 即采到正确的屏。
+    const byDisplayId = new Map();
+    sources.forEach((s) => { if (s.display_id != null && s.display_id !== '') byDisplayId.set(String(s.display_id), s); });
+    const ordered = all.map((d, i) => {
+      const s = byDisplayId.get(String(d.id));
+      const pick = s || sources[i] || null;
+      return {
+        id: pick ? pick.id : null,
+        name: pick ? pick.name : ('显示器 ' + (i + 1)),
+        display_id: pick ? pick.display_id : String(d.id),
+        index: i
+      };
+    });
+    return ordered;
   } catch (e) {
     return { error: String((e && e.message) || e) };
   }
 });
 // 设置窗用：枚举所有物理显示器（供"追踪屏幕"下拉 + "标识屏幕"按钮）。
-// index 与 pet:getScreenSources 返回的 sources 顺序一一对应（同一次枚举，Windows 下顺序一致），
-// 因此追踪器按 index 取 sources[index] 即为对应物理屏。
+// 这里用 screen API 的显示器顺序（与 Windows 显示设置一致，编号即"显示器 N"）。
+// pet:getScreenSources 已按 display_id 把 desktopCapturer 源对齐到本顺序，
+// 因此下拉选中的 index 与追踪器 sources[index] 指向同一块物理屏。
 ipcMain.handle('pet:getDisplays', () => {
   try {
     const all = screen.getAllDisplays();
@@ -1936,6 +2239,12 @@ ipcMain.handle('pet:getDisplays', () => {
       x: d.bounds.x, y: d.bounds.y, w: d.bounds.width, h: d.bounds.height
     }));
   } catch (e) { return { error: String((e && e.message) || e) }; }
+});
+// 屏幕运动追踪用：返回桌宠自身窗口的屏幕坐标（含尺寸），供渲染进程把"自己"从运动检测里遮罩掉。
+ipcMain.handle('pet:getPetWindowRect', () => {
+  if (!winAlive()) return null;
+  const b = mainWin.getBounds();
+  return { x: b.x, y: b.y, width: b.width, height: b.height };
 });
 // 设置窗"标识屏幕"按钮：在每个物理显示器上短暂弹出一个透明大数字窗口，
 // 编号 1..N 与 Windows 显示设置一致；selected 那个高亮标"✓已选"，便于确认当前选中的是哪块屏。
@@ -1994,6 +2303,49 @@ ipcMain.on('pet:promptResult', (_e, val) => {
 // 渲染进程 -> 主进程：屏幕运动追踪实启停后回传状态，用于同步托盘菜单勾选态。
 // 注意：这里只更新本地状态、不再 webContents.send 回渲染进程，避免与主进程下发的 pet:setScreenTrack 形成环。
 ipcMain.on('pet:screenTrackState', (_e, v) => { screenTrackState.enabled = !!v; });
+
+// 渲染进程 -> 主进程：屏幕运动追踪每帧检测实况（含灰度帧/各运动连通块/状态），转发给"屏幕追踪调试"窗口。
+// 仅在调试窗口存在时转发，避免无谓的 IPC 带宽消耗；同时缓存最近一帧，供调试窗就绪后补发（解决首帧收不到画面）。
+ipcMain.on('pet:screenTrackDebug', (_e, d) => {
+  lastScreenDiag = d;
+  if (screenDebugWin && !screenDebugWin.isDestroyed()) {
+    try { screenDebugWin.webContents.send('debug:screenTrack', d); } catch (e) {}
+  }
+});
+// 调试窗就绪后，立即把最近一帧检测实况补发给它。首帧常因"监听注册时机 / 限流"被错过，
+// 导致"打开调试面板却收不到画面、必须重开关卡才看到"；补发缓存即可立即可见（问题①）。
+ipcMain.on('pet:debugReady', () => {
+  if (screenDebugWin && !screenDebugWin.isDestroyed()) {
+    // 1) 把缓存的最近一帧立刻补发给调试窗（首帧兜底）
+    if (lastScreenDiag) {
+      try { screenDebugWin.webContents.send('debug:screenTrack', lastScreenDiag); } catch (e) {}
+    }
+    // 2) 同时请追踪器立即补发一帧（绕过 80ms 限流），确保打开即见画面、不依赖限流窗口
+    if (winAlive()) {
+      try { mainWin.webContents.send('pet:requestScreenDiag'); } catch (e) {}
+    }
+  }
+});
+
+// 渲染进程 -> 主进程：音律识别周期的诊断快照（能量/起音/相位/点头包络/实际写入的模型参数），
+// 转发给"音律识别调试"窗口。仅在窗口存在时转发，并缓存最近一份供窗口就绪后补发。
+ipcMain.on('pet:musicDebug', (_e, d) => {
+  lastMusicDiag = d;
+  if (musicDebugWin && !musicDebugWin.isDestroyed()) {
+    try { musicDebugWin.webContents.send('debug:music', d); } catch (e) {}
+  }
+});
+// 音律识别调试窗就绪：先补发缓存，再请追踪器立即补一份（绕过限流）。两者都做，
+// 保证"打开面板立刻有数据"，不必等下一个心跳/限流周期。
+ipcMain.on('pet:musicDebugReady', () => {
+  if (!musicDebugWin || musicDebugWin.isDestroyed()) return;
+  if (lastMusicDiag) {
+    try { musicDebugWin.webContents.send('debug:music', lastMusicDiag); } catch (e) {}
+  }
+  if (winAlive()) {
+    try { mainWin.webContents.send('pet:requestMusicDiag'); } catch (e) {}
+  }
+});
 
 // ---------------------------------------------------------------------------
 // 设置窗：配置读写（主进程持有落盘职责，渲染进程只发 get/set 请求）

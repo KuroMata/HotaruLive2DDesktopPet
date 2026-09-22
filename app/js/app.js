@@ -245,6 +245,11 @@
         if (window.MusicTracker && window.MusicTracker.init) {
           window.__musicTracker = window.MusicTracker.init();
           l2d.setMusicTracker(window.__musicTracker);
+          // 让追踪器能读到"实际写进模型的参数值"（真身是 live2d-loader 的 _musicTick）。
+          // 调试面板上最关键的一列就是它：分辨"算出来有律动但没写进模型"与"根本没算出律动"。
+          if (window.__musicTracker.setModelProbe) {
+            window.__musicTracker.setModelProbe(() => (l2d.getMusicDebug ? l2d.getMusicDebug() : null));
+          }
           const men = window.__companionConfig && window.__companionConfig.music;
           if (men && men.enabled) l2d.setMusicEnabled(true);
         }
@@ -267,6 +272,17 @@
       if (l2d && l2d.setMouseFollow) {
         const mf = window.__companionConfig && window.__companionConfig.mouseFollow;
         l2d.setMouseFollow(mf !== false);
+      }
+      // 屏幕运动追踪：启动时按配置初始化（含"额外牵动参数"），并把"配置里已打开"的追踪直接拉起——
+      // 否则重启程序后托盘虽显示已勾选、实际却没在采集，必须先到设置里关开一次才动（问题①相关）。
+      // 采集本身的首次失败/卡死由追踪器内的"健康守护"自动重试，这里只管把状态对齐配置。
+      if (window.__screenTracker && window.__companionConfig && window.__companionConfig.screenTrack) {
+        const st = window.__companionConfig.screenTrack;
+        try {
+          if (window.__screenTracker.setParams) window.__screenTracker.setParams(st);
+          if (st.screenIndex != null && window.__screenTracker.setScreen) window.__screenTracker.setScreen(st.screenIndex);
+          if (st.enabled) window.__screenTracker.setEnabled(true);
+        } catch (e) { /* 追踪器未就绪时忽略，后续由设置窗/托盘触发 */ }
       }
     }).catch((e) => {
       console.error(e);
@@ -854,35 +870,14 @@
       bubble.classList.add('thinking', 'generating');
       setBubbleText(bubble, '思考中…');
       setStatus('思考中… · ' + brainLabel(brainKind));
-      let pendingEmo = null;      // 情绪标签可能跨好几个流片段才完整，先攒着
-      const stripTag = (s) => {
-        // 流式的难点：标签可能分多次到达（"["、"jo"、"y]"），
-        // 攒够一个完整的 [...] 再判定，够不上就先不显示这段，避免把 "[jo" 打到气泡里。
-        if (pendingEmo !== null) {
-          pendingEmo += s;
-          const m = /^\[([a-zA-Z]*)\]/.exec(pendingEmo);
-          if (m) {
-            const tag = m[1].toLowerCase();
-            if (window.ChatBackends.EMOTIONS.indexOf(tag) >= 0 && l2d.setChatEmotion) l2d.setChatEmotion(tag);
-            const rest = pendingEmo.slice(m[0].length);
-            pendingEmo = null;
-            return { text: rest, hold: false };
-          }
-          if (pendingEmo.length > 24 || !/^\[?[a-zA-Z]*$/.test(pendingEmo)) {
-            // 攒了半天也不像标签：原样吐出来，别吞掉用户的字
-            const out = pendingEmo; pendingEmo = null;
-            return { text: out, hold: false };
-          }
-          return { text: '', hold: true };
-        }
-        if (s === '[' || /^\[[a-zA-Z]*$/.test(s)) { pendingEmo = s; return { text: '', hold: true }; }
-        return { text: s, hold: false };
-      };
+      // 情绪标签清洗器（见 chat-backends.js）：标签可能跨片段到达、可能前面多一个空格、
+      // 也可能夹在句子中间，这里统一处理，保证气泡里只出现正文。
+      let stripper = window.ChatBackends.createTagStripper();
       await brain.send(text, {
         onDelta: (piece) => {
-          const r = stripTag(piece);
-          if (!r.text) return;
-          acc += r.text;
+          const r = stripper.push(piece);
+          if (!r) return;
+          acc += r;
           bubble.classList.remove('thinking');   // 首个字到了，思考提示撤下
           setBubbleText(bubble, acc);
           l2d.feedChatText(acc);   // 实时喂给口型引擎，聊天回复也做元音对照
@@ -902,23 +897,34 @@
             bubble.classList.add('thinking');
             setBubbleText(bubble, '思考中…');
             setStatus('已接收本轮回复，生成中…');
-            pendingEmo = null;
+            stripper = window.ChatBackends.createTagStripper();   // 回放段不算本轮，清洗器重置
           }
           messagesEl.scrollTop = messagesEl.scrollHeight;
         },
         onDone: (full, meta) => {
           bubble.classList.remove('syncing', 'thinking', 'generating');
-          const parsed = window.ChatBackends.parseEmotion(full || acc);
-          // 流式阶段已经设过就不重复设；没设过（比如标签在最开头但被 hold 了）在这里补
-          if (l2d.setChatEmotion) l2d.setChatEmotion(parsed.emo);
+          // 先把清洗器里剩下的尾巴放出来（正常情况为空；被"停止"截断时会丢掉半截标签）
+          const tail = stripper.flush();
+          if (tail.text) acc += tail.text;
+          let emo = tail.tagged ? tail.emo : null;
+          let tagged = !!tail.tagged;
+          let shown = acc;
+          if (!shown) {
+            // 没走到流式（或整条回复只有一个标签）：拿完整文本兜底清洗一次
+            const parsed = window.ChatBackends.parseEmotion(full || '');
+            shown = parsed.text;
+            if (!emo) { emo = parsed.emo; tagged = tagged || parsed.tagged; }
+          }
+          // 模型一枚标签都没写：按关键词猜一个，别让表情卡在上一轮的状态
+          if (!emo) emo = window.ChatBackends.guessEmotion(shown);
           const stopped = !!(meta && meta.stopped);
-          let shown = acc || parsed.text;
           if (!shown) shown = stopped ? '（已停止）' : '(无文本回复)';
           else if (stopped) shown += '（已停止）';
           setBubbleText(bubble, shown);
+          if (l2d.setChatEmotion) l2d.setChatEmotion(emo);
           // TTS：复用台词那条链路，聊出来的话也能念出来（语音关着就只显示文字）
-          if (ttsOn && shown) ttsSpeak(shown, [parsed.emo], null);
-          setStatus(brainLabel(brainKind) + (stopped ? ' · 已停止' : ' · ' + (parsed.tagged ? '情绪[' + parsed.emo + ']' : '已回复')));
+          if (ttsOn && shown) ttsSpeak(shown, [emo], null);
+          setStatus(brainLabel(brainKind) + (stopped ? ' · 已停止' : ' · ' + (tagged ? '情绪[' + emo + ']' : '已回复')));
         },
         onError: (e) => {
           bubble.classList.remove('thinking', 'generating');
@@ -1060,6 +1066,10 @@
     window.desktopPet.on('pet:setScreenTrackScreen', (idx) => {
       if (window.__screenTracker && window.__screenTracker.setScreen) window.__screenTracker.setScreen(idx);
     });
+    // 屏幕追踪调试窗就绪 / 主进程请求时，立即把最近一帧诊断补发给调试窗（绕过限流，确保一开就见画面）
+    window.desktopPet.on('pet:requestScreenDiag', () => {
+      if (window.__screenTracker && window.__screenTracker.requestDiag) window.__screenTracker.requestDiag();
+    });
     // 鼠标追踪总开关：设置窗/托盘切换后实时下发，立即生效（无需重启）
     window.desktopPet.on('pet:setMouseFollow', (v) => {
       if (l2d && l2d.setMouseFollow) l2d.setMouseFollow(!!v);
@@ -1081,6 +1091,14 @@
     // 音律识别参数（闭眼程度/点头幅度/灵敏度）：设置窗调整后实时下发，追踪器立即生效
     window.desktopPet.on('pet:setMusicCfg', (cfg) => {
       if (window.__musicTracker && window.__musicTracker.setParams) window.__musicTracker.setParams(cfg || {});
+    });
+    // 音律识别调试面板：开/关时通知追踪器（开着才上报 + 跑心跳，没开就不占 IPC）
+    window.desktopPet.on('pet:musicDebugOpen', (v) => {
+      if (window.__musicTracker && window.__musicTracker.setDebugOpen) window.__musicTracker.setDebugOpen(!!v);
+    });
+    // 调试窗就绪 / 主进程请求：立即补发最近一份诊断快照（绕过限流）
+    window.desktopPet.on('pet:requestMusicDiag', () => {
+      if (window.__musicTracker && window.__musicTracker.requestDiag) window.__musicTracker.requestDiag();
     });
     // 模型参数列表：设置窗打开时若缓存尚未就绪，主进程请主窗口补报一次
     window.desktopPet.on('pet:requestModelParams', () => {

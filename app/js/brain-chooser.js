@@ -144,6 +144,8 @@
     const p = persona || {};
     $('charName').value = p.charName || '';
     $('charGender').value = p.charGender === undefined ? 'male' : (p.charGender || '');
+    $('charSpecies').value = p.species || '';
+    $('charAppearance').value = p.appearance || '';
     $('userTitle').value = p.userTitle || '';
     $('selfTitle').value = p.selfTitle || '';
     $('relation').value = p.relation || '';
@@ -156,24 +158,26 @@
 
   function collectPersona() {
     const old = persona || {};
-    return {
-      version: 1,
+    // 先摊开旧值再覆盖表单字段：表单只覆盖它自己有的输入框，这样人设新增字段
+    // （species/appearance 这类）不会因为没有对应输入框而在保存时被悄悄丢掉。
+    return Object.assign({}, old, {
+      version: 2,
       charName: $('charName').value.trim() || '黑叶萤',
       charGender: $('charGender').value,
       charAge: old.charAge || '',
+      species: $('charSpecies').value.trim(),
+      appearance: $('charAppearance').value.trim(),
       relation: $('relation').value.trim() || '助理',
       userTitle: $('userTitle').value.trim(),
       selfTitle: $('selfTitle').value.trim(),
       personality: unlines($('personality').value),
       tone: $('tone').value.trim(),
-      speech: {
-        length: $('speechLen').value.trim(),
-        punctuation: (old.speech && old.speech.punctuation) || '',
-        languages: (old.speech && old.speech.languages) || ''
-      },
+      speech: Object.assign({}, old.speech, {
+        length: $('speechLen').value.trim()
+      }),
       boundaries: unlines($('boundaries').value),
       extra: $('extra').value.trim()
-    };
+    });
   }
 
   // ---------------------------------------------------------------- 提交
@@ -218,6 +222,11 @@
     cfg = await window.desktopPet.getConfig() || {};
     persona = await window.desktopPet.getPersona();
     picked = (cfg.chat && cfg.chat.backend) || 'cloud';
+    // 「下次不再询问」的初始勾选态取自当前配置：只有 askEveryStart 已经是 false 才勾上。
+    // 旧版这个复选框恒为未勾选，于是"只要打开一次选择窗并点确定"就会把 askEveryStart 写成
+    // true——用户本来只是想换个后端，却被静默改成"每次启动都询问"，之后每次开机都被拦在
+    // 这一步（本次"桌宠打不开"的直接诱因）。
+    try { $('noAsk').checked = !!(cfg.chat && cfg.chat.askEveryStart === false); } catch (e) {}
     renderCards();
     renderPresets();
     fillCloud();

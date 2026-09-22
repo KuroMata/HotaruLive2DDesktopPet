@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<title>屏幕追踪调试</title>
+<style>
+  :root {
+    --bg: #1b1b1d;
+    --panel: #232427;
+    --panel2: #2b2c30;
+    --line: #38393d;
+    --txt: #e6e6e6;
+    --dim: #9aa0a6;
+    --accent: #58c4ff;
+    --pos: #6fcf73;
+    --neg: #f06a6a;
+    --warn: #ffb347;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--txt);
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; font-size: 13px; }
+  #top { display: flex; align-items: baseline; gap: 10px; padding: 9px 14px; flex-wrap: wrap;
+    background: var(--panel); border-bottom: 1px solid var(--line); }
+  #title { font-weight: 600; font-size: 15px; }
+  #meta { color: var(--dim); font-size: 12px; }
+  #meta b { color: var(--txt); }
+  #meta .live { color: var(--pos); }
+  #meta .stale { color: var(--neg); }
+  .sec { padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .sec h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--dim);
+    text-transform: uppercase; letter-spacing: .04em; }
+  #stage { position: relative; width: 100%; background: #0c0c0e; border: 1px solid var(--line);
+    border-radius: 6px; overflow: hidden; }
+  canvas { display: block; width: 100%; height: auto; }
+  #stageHint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: var(--dim); font-size: 13px; text-align: center; padding: 16px; line-height: 1.7; }
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 14px; }
+  .kv { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0;
+    border-bottom: 1px dashed #2c2d31; }
+  .kv .k { color: var(--dim); }
+  .kv .v { font-family: Consolas, monospace; color: var(--txt); }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; }
+  .tag.on { background: rgba(111,207,115,.18); color: var(--pos); }
+  .tag.off { background: rgba(154,160,166,.18); color: var(--dim); }
+  .tag.err { background: rgba(240,106,106,.18); color: var(--neg); }
+  table { width: 100%; border-collapse: collapse; }
+  thead th { position: sticky; top: 0; background: var(--panel); color: var(--dim);
+    text-align: left; padding: 6px 8px; font-weight: 500; border-bottom: 1px solid var(--line); }
+  tbody tr { border-bottom: 1px solid #2a2a2b; }
+  tbody tr:hover { background: #2a2a2b; }
+  tbody tr.tracked { background: rgba(111,207,115,.10); }
+  td { padding: 4px 8px; font-family: Consolas, monospace; font-size: 12px; }
+  td.idx { color: var(--dim); width: 28px; text-align: right; }
+  td.state { font-family: -apple-system, sans-serif; }
+  .st-track { color: var(--pos); }
+  .st-ignore { color: var(--warn); }
+  #empty { padding: 14px; color: var(--dim); line-height: 1.8; }
+  #empty code { color: var(--accent); }
+  .hint { color: var(--dim); font-size: 11px; margin-top: 6px; line-height: 1.6; }
+</style>
+</head>
+<body>
+  <div id="top">
+    <span id="title">屏幕追踪调试</span>
+    <span id="meta">等待数据…</span>
+  </div>
+
+  <div class="sec">
+    <h3>捕捉画面 + 识别结果</h3>
+    <div id="stage">
+      <canvas id="cv" width="320" height="180"></canvas>
+      <div id="stageHint">尚未收到数据。<br>请先在托盘菜单「屏幕运动追踪」开启追踪，<br>本面板会实时画出被识别到的物体。</div>
+    </div>
+    <div class="hint">绿框 = 当前视线正在跟的物体；琥珀框 = 其它被识别到的运动物体；蓝框（虚线）= 桌宠自身窗口，该区域的运动已被排除，不会把自己误判成运动物体。十字为选中物体质心，箭头为模型视线方向。</div>
+  </div>
+
+  <div class="sec">
+    <h3>状态</h3>
+    <div class="grid">
+      <div class="kv"><span class="k">采集</span><span class="v" id="st-run">—</span></div>
+      <div class="kv"><span class="k">锁定目标</span><span class="v" id="st-active">—</span></div>
+      <div class="kv"><span class="k">视线方向 X</span><span class="v" id="st-nx">—</span></div>
+      <div class="kv"><span class="k">视线方向 Y</span><span class="v" id="st-ny">—</span></div>
+      <div class="kv"><span class="k">注视停留</span><span class="v" id="st-nom">—</span></div>
+      <div class="kv"><span class="k">追踪屏幕</span><span class="v" id="st-screen">—</span></div>
+      <div class="kv"><span class="k">局部运动占比</span><span class="v" id="st-cov">—</span></div>
+    </div>
+    <div id="st-err" class="hint" style="color:var(--neg); display:none;"></div>
+  </div>
+
+  <div class="sec">
+    <h3>识别到的物体（每个连通运动块）</h3>
+    <table>
+      <thead><tr><th>#</th><th>像素数</th><th>质心 (x%, y%)</th><th>包围盒 (px)</th><th>状态</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div id="empty">本帧没有检测到运动物体（画面静止或运动太小）。</div>
+  </div>
+
+  <div class="sec">
+    <h3>参数</h3>
+    <div class="grid">
+      <div class="kv"><span class="k">分辨率</span><span class="v" id="p-res">—</span></div>
+      <div class="kv"><span class="k">帧率</span><span class="v" id="p-fps">—</span></div>
+      <div class="kv"><span class="k">帧差阈值</span><span class="v" id="p-thr">—</span></div>
+      <div class="kv"><span class="k">灵敏度 motionMin</span><span class="v" id="p-min">—</span></div>
+      <div class="kv"><span class="k">追踪范围 spread</span><span class="v" id="p-spread">—</span></div>
+      <div class="kv"><span class="k">光标下限 px</span><span class="v" id="p-minpx">—</span></div>
+    </div>
+  </div>
+
+  <script>
+    const cv = document.getElementById('cv');
+    const dctx = cv.getContext('2d');
+    const metaEl = document.getElementById('meta');
+    const rowsEl = document.getElementById('rows');
+    const emptyEl = document.getElementById('empty');
+    const stageHint = document.getElementById('stageHint');
+    const SCALE = 2;            // 显示分辨率 = 捕捉分辨率 × SCALE
+
+    let lastT = 0;
+    let lastDiag = null;
+
+    const pct = (v) => (typeof v === 'number' && !isNaN(v)) ? (((v + 1) / 2 * 100).toFixed(0) + '%') : '—';
+
+    function drawFrame(diag) {
+      const cw = diag.cw, ch = diag.ch;
+      // 帧图尺寸变化时同步显示画布
+      if (cv.width !== cw * SCALE) cv.width = cw * SCALE;
+      if (cv.height !== ch * SCALE) cv.height = ch * SCALE;
+      const W = cv.width, H = cv.height;
+      const sx = W / cw, sy = H / ch;
+
+      dctx.clearRect(0, 0, W, H);
+      // 1) 灰度帧
+      if (diag.gray && diag.gray.length === cw * ch) {
+        const off = document.createElement('canvas'); off.width = cw; off.height = ch;
+        const octx = off.getContext('2d');
+        const img = octx.createImageData(cw, ch);
+        const d = img.data, g = diag.gray;
+        for (let i = 0; i < g.length; i++) {
+          const v = g[i]; d[i * 4] = v; d[i * 4 + 1] = v; d[i * 4 + 2] = v; d[i * 4 + 3] = 255;
+        }
+        octx.putImageData(img, 0, 0);
+        dctx.imageSmoothingEnabled = false;
+        dctx.drawImage(off, 0, 0, W, H);
+      } else {
+        dctx.fillStyle = '#0c0c0e'; dctx.fillRect(0, 0, W, H);
+      }
+
+      // 2) 每个被识别到的物体：包围盒 + 质心
+      const comps = diag.components || [];
+      for (const c of comps) {
+        const x = c.x0 * sx, y = c.y0 * sy, w = (c.x1 - c.x0) * sx, h = (c.y1 - c.y0) * sy;
+        dctx.lineWidth = c.tracked ? 3 : 2;
+        dctx.strokeStyle = c.tracked ? '#6fcf73' : '#ffb347';
+        dctx.strokeRect(x, y, w, h);
+        if (c.tracked) {
+          const ccx = c.cx * sx, ccy = c.cy * sy;
+          dctx.strokeStyle = '#6fcf73';
+          dctx.beginPath();
+          dctx.moveTo(ccx - 7, ccy); dctx.lineTo(ccx + 7, ccy);
+          dctx.moveTo(ccx, ccy - 7); dctx.lineTo(ccx, ccy + 7);
+          dctx.stroke();
+        }
+      }
+
+      // 2.5) 桌宠自身遮罩区域（蓝框虚线）：此范围内的运动被忽略，避免模型把自己当运动物体识别
+      const mk = diag.mask;
+      if (mk) {
+        const mx = mk.x0 * sx, my = mk.y0 * sy, mw = (mk.x1 - mk.x0) * sx, mh = (mk.y1 - mk.y0) * sy;
+        dctx.save();
+        dctx.strokeStyle = '#58c4ff'; dctx.lineWidth = 2; dctx.setLineDash([6, 4]);
+        dctx.strokeRect(mx, my, mw, mh);
+        dctx.setLineDash([]);
+        dctx.fillStyle = 'rgba(88,196,255,.9)'; dctx.font = '11px sans-serif';
+        dctx.fillText('桌宠自身(已排除)', mx + 4, my + 14);
+        dctx.restore();
+      }
+
+        // 3) 视线方向箭头：以"桌宠眼睛"位置为原点（问题③：朝宠物自身头部看，而非屏幕中心），
+      //    指向 (nx, ny) 映射出的视线落点。先画一个空心圆标记宠物眼睛位置。
+      const ek = diag.eye || { nx: 0.5, ny: 0.5 };
+      const ecx = ek.nx * W, ecy = ek.ny * H;
+      dctx.strokeStyle = 'rgba(88,196,255,.55)'; dctx.lineWidth = 1.5;
+      dctx.beginPath(); dctx.arc(ecx, ecy, 5, 0, Math.PI * 2); dctx.stroke();
+      const t = diag.target || {};
+      if (t.active) {
+        const tx = ecx + (t.nx || 0) * W / 2, ty = ecy + (t.ny || 0) * H / 2;
+        dctx.strokeStyle = '#58c4ff'; dctx.fillStyle = '#58c4ff'; dctx.lineWidth = 2;
+        dctx.beginPath(); dctx.moveTo(ecx, ecy); dctx.lineTo(tx, ty); dctx.stroke();
+        dctx.beginPath(); dctx.arc(tx, ty, 4, 0, Math.PI * 2); dctx.fill();
+      }
+      stageHint.style.display = 'none';
+    }
+
+    function setStatus(diag) {
+      const st = diag.state || {};
+      const run = document.getElementById('st-run');
+      const errEl = document.getElementById('st-err');
+      if (!st.running) {
+        run.innerHTML = '<span class="tag off">未运行</span>';
+        if (st.error) { errEl.style.display = 'block'; errEl.textContent = '错误：' + st.error; }
+        else { errEl.style.display = 'none'; }
+      } else {
+        run.innerHTML = '<span class="tag on">运行中</span>';
+        errEl.style.display = 'none';
+      }
+      document.getElementById('st-active').innerHTML = (st.active)
+        ? '<span class="tag on">已锁定</span>' : '<span class="tag off">未锁定</span>';
+      const t = diag.target || {};
+      document.getElementById('st-nx').textContent = (t.active) ? pct(t.nx) : '—';
+      document.getElementById('st-ny').textContent = (t.active) ? pct(t.ny) : '—';
+      document.getElementById('st-nom').textContent = (st.running)
+        ? ((st.dwell | 0) + ' / ' + (st.dwellFrames || 0) + (st.active ? '（注视中）' : '（已松手）')) : '—';
+      document.getElementById('st-screen').textContent = '显示器 ' + ((st.screenIndex | 0) + 1);
+      document.getElementById('st-cov').textContent = (st.running)
+        ? ((st.coverage != null ? (st.coverage * 100).toFixed(0) : '0') + '%') : '—';
+    }
+
+    function setObjects(diag) {
+      const comps = diag.components || [];
+      rowsEl.innerHTML = '';
+      if (!comps.length) { emptyEl.style.display = 'block'; return; }
+      emptyEl.style.display = 'none';
+      comps.forEach((c, i) => {
+        const tr = document.createElement('tr');
+        if (c.tracked) tr.className = 'tracked';
+        const x0 = (c.cx / diag.cw * 100), y0 = (c.cy / diag.ch * 100);
+        tr.innerHTML =
+          '<td class="idx">' + (i + 1) + '</td>' +
+          '<td>' + c.cnt + '</td>' +
+          '<td>' + x0.toFixed(1) + '%, ' + y0.toFixed(1) + '%</td>' +
+          '<td>(' + c.x0 + ',' + c.y0 + ')–(' + c.x1 + ',' + c.y1 + ')</td>' +
+          '<td class="state ' + (c.tracked ? 'st-track' : 'st-ignore') + '">' +
+            (c.tracked ? '追踪中' : '忽略') + '</td>';
+        rowsEl.appendChild(tr);
+      });
+    }
+
+    function setParams(diag) {
+      const p = diag.params || {};
+      document.getElementById('p-res').textContent = (p.CW || '?') + '×' + (p.CH || '?');
+      document.getElementById('p-fps').textContent = (p.FPS || '?') + ' fps';
+      document.getElementById('p-thr').textContent = p.THRESH != null ? p.THRESH : '—';
+      document.getElementById('p-min').textContent = p.MOTION_MIN != null ? p.MOTION_MIN : '—';
+      document.getElementById('p-spread').textContent = p.SPREAD != null ? p.SPREAD : '—';
+      document.getElementById('p-minpx').textContent = p.MIN_MOTION_PX != null ? p.MIN_MOTION_PX : '—';
+    }
+
+    function onDiag(diag) {
+      lastT = Date.now();
+      lastDiag = diag;
+      if (!diag || (diag.state && diag.state.running === false)) {
+        // 未运行：清掉画面与列表，仅保留状态
+        if (diag && diag.state) setStatus(diag);
+        const W = cv.width || 320 * SCALE, H = cv.height || 180 * SCALE;
+        dctx.clearRect(0, 0, W, H);
+        dctx.fillStyle = '#0c0c0e'; dctx.fillRect(0, 0, W, H);
+        rowsEl.innerHTML = ''; emptyEl.style.display = 'block';
+        if (diag && diag.state && !diag.state.running && !diag.state.error) {
+          stageHint.style.display = 'flex';
+          stageHint.innerHTML = '屏幕追踪未运行。<br>请在托盘菜单「屏幕运动追踪」开启后，这里会实时显示识别结果。';
+        }
+        if (diag && diag.params) setParams(diag);
+        return;
+      }
+      drawFrame(diag);
+      setStatus(diag);
+      setObjects(diag);
+      setParams(diag);
+    }
+
+    function refreshMeta() {
+      const stale = (Date.now() - lastT) > 900;
+      if (!lastDiag) {
+        metaEl.innerHTML = '等待数据…';
+        return;
+      }
+      const running = lastDiag.state && lastDiag.state.running;
+      const objN = (lastDiag.components || []).length;
+      const trackN = (lastDiag.components || []).filter((c) => c.tracked).length;
+      metaEl.innerHTML = '物体 <b>' + objN + '</b> · 追踪中 <b>' + trackN + '</b> · ' +
+        '<span class="' + (stale ? 'stale' : 'live') + '">' + (stale ? '停滞' : '实时') + '</span>' +
+        (running ? '' : ' · <span class="stale">未运行</span>');
+    }
+
+    if (window.desktopPet && window.desktopPet.on) {
+      window.desktopPet.on('debug:screenTrack', onDiag);
+      // 告知主进程"本窗口已就绪"，主进程会把最近一帧检测实况补发过来，避免首帧收不到画面
+      if (window.desktopPet.send) window.desktopPet.send('pet:debugReady');
+    } else {
+      metaEl.textContent = 'desktopPet 不可用（preload 未挂载）';
+    }
+    setInterval(refreshMeta, 500);
+  </script>
+</body>
+</html>
