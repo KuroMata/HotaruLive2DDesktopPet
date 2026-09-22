@@ -16,6 +16,7 @@
 - **多语言台词档**：cn / jp / en，可切换人设档
 - **TTS 语音**：支持 Edge TTS / CosyVoice / IndexTTS / Windows SAPI，可插拔
 - **聊天大脑（独立思考）**：不依赖 WorkBuddy 也能聊天——可选「本地模型（Ollama）/ 云端 API / WorkBuddy」三种大脑，自定义人设；问时间/节日走快通道，带思考超时保护与气泡「思考中…」提示 + 悬停手动停止
+- **本地模型一键安装向导**：安装包不带 Ollama，但应用内带向导——自动探活 4 条下载源（含国内镜像）、静默安装（免管理员）、拉起服务、拉模型带进度条，全程不用敲命令
 - **WorkBuddy 桥接**：作为可选聊天大脑之一，通过本地 ACP 协议对话
 - **设置界面**：换模型、换台词档、调参数、选聊天大脑，无需改代码
 
@@ -93,7 +94,29 @@ npm config set electron_mirror https://npmmirror.com/mirrors/electron/
 **端口占用**
 默认占用 18765（本地服务）与 18766（TTS），可在 `config.json` 里改。
 
-## 更新日志（自上次提交以来的改动）
+## 更新日志（本批：本地模型安装向导）
+
+> 安装包不做的事，交给应用内向导做：装 Ollama + 拉模型从"5 条命令"变成"一个按钮"。
+
+### 新增功能
+- **本地模型安装向导**（`app/ollama-setup.html` + `app/js/ollama-setup.js`，托盘「本地模型安装向导…」）：
+  五步走完 ①环境检测 → ②装 Ollama → ③起服务 → ④拉模型 → ⑤启用，每步可单独重来，中途关窗可续。
+- **两处入口**：托盘菜单；以及选择大脑窗「本地模型」卡片上按探测结果动态出现的「🔧 一键安装 Ollama →」/「🔧 一键下载模型 →」。
+- **多源自动切换**：并发探活 4 条下载源（gh-proxy / ghfast / ghproxy 镜像 + GitHub 直连）按延迟排序，
+  失败自动换下一条；四条全不通时给「浏览器手动下载」兜底。本机实测 3/4 通，gh-proxy 349ms 最快。
+- **安装免管理员**：静默安装带 `/CURRENTUSER`，走每用户安装，不弹 UAC。
+- **拉模型带进度**：读 Ollama 的 NDJSON 流，显示百分比 / 已下体积 / 速度 / 剩余时间，可取消且保留续传。
+- **下载完整性校验**：比对 GitHub release 的 sha256，避免半截包被当成装完。
+
+### 问题修复
+- **新用户门槛**：原来探测失败只给一句"请先安装 Ollama"/"请执行 ollama pull xxx"，现在直接给可点的一键入口。
+
+### 文件变动
+新增 `app/ollama-setup.html`、`app/js/ollama-setup.js`、`tools/selfcheck/probe-ollama-setup.js`、
+`tools/selfcheck/run-ollama-wizard-check.js`；`main.js` 新增向导后端（检测 / 探源 / 下载 / 静默安装 / 建窗 / IPC）、
+`preload.js` 暴露 7 个向导接口，`brain-chooser.js` 增加失败时的补装入口。
+
+## 更新日志（上一批：独立聊天大脑）
 
 > 本批改动构成「独立聊天大脑」体系：桌宠从「必须接入 WorkBuddy 才能对话」升级为「自带思考能力」。
 
@@ -124,6 +147,8 @@ app/                   桌宠页面（渲染层）
   js/app.js            交互、台词调度与聊天发送
   js/chat-backends.js  聊天大脑后端抽象（本地/云端/WorkBuddy + 时钟/节日快通道）
   js/brain-chooser.js  启动选择窗逻辑
+  js/ollama-setup.js   本地模型安装向导逻辑（检测/安装/拉模型进度）
+  ollama-setup.html    本地模型安装向导页面
   js/settings…         设置窗口
   data/                台词档与人设档（JSON），含 persona.json
   models/              ← 把你的模型放这里（仓库内只有说明文档）

@@ -68,7 +68,25 @@
     if (kind === 'local') probeLocal();
   }
 
-  // 探本地：Ollama 在不在 + 模型下好没
+  // 探本地：Ollama 在不在 + 模型下好没。
+  // 探测失败的两种情况都给一个「一键…」入口，把人送到向导窗口 ——
+  // 只丢一句"请先安装 Ollama / 请执行 ollama pull xxx"等于把门槛全推给用户。
+  function localFixButton(label) {
+    if (!label) return;
+    const el = document.querySelector('[data-probe="local"]');
+    if (!el) return;
+    const b = document.createElement('button');
+    b.className = 'probe-fix';
+    b.textContent = label;
+    b.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      try { window.desktopPet.openOllamaSetup(); } catch (e) {}
+    });
+    el.appendChild(document.createElement('br'));
+    el.appendChild(b);
+  }
+
   async function probeLocal() {
     setProbe('local', 'run', '正在检测 Ollama…');
     const model = (cfg.chat && cfg.chat.local && cfg.chat.local.model) || 'qwen2.5:7b-instruct-q4_K_M';
@@ -80,9 +98,13 @@
       const base = model.split(':')[0];
       const has = names.some((n) => n === model || n.split(':')[0] === base);
       if (has) setProbe('local', 'ok', '✓ 模型已就绪（' + model + '）');
-      else setProbe('local', 'bad', '⚠ Ollama 在跑，但没找到模型 ' + model + '。请在终端执行：ollama pull ' + model);
+      else {
+        setProbe('local', 'bad', '⚠ Ollama 在跑，但没找到模型 ' + model);
+        localFixButton('🔧 一键下载模型 →');
+      }
     } catch (e) {
-      setProbe('local', 'bad', '⚠ 连不上 Ollama（' + (e.message || e) + '）。请先安装并启动 Ollama。');
+      setProbe('local', 'bad', '⚠ 连不上 Ollama（' + (e.message || e) + '）');
+      localFixButton('🔧 一键安装 Ollama →');
     }
   }
 
@@ -239,6 +261,12 @@
     $('testCloud').addEventListener('click', testCloud);
     $('go').addEventListener('click', submit);
     if (picked === 'local') probeLocal();
+    // 向导装好/下好后会广播：立刻重新探测，别让用户看着"未安装"的旧结论。
+    // 另外窗口重新获得焦点时也探一次（用户可能刚在别的窗口里装完 Ollama）。
+    if (window.desktopPet && window.desktopPet.on) {
+      window.desktopPet.on('pet:ollamaReady', () => { if (picked === 'local') probeLocal(); });
+    }
+    window.addEventListener('focus', () => { if (picked === 'local') probeLocal(); });
     $('localWarn').classList.toggle('hidden', picked !== 'local');
     if (picked === 'cloud') $('cloudSec').classList.remove('hidden');
     try {

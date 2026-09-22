@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>本地模型安装向导</title>
+<style>
+  :root{
+    --bg:#11151c; --panel:#171d27; --panel2:#1d2431; --line:#2a3342;
+    --text:#e8eef6; --sub:#93a0b5; --accent:#4f9cf9; --accent2:#7bd88f; --warn:#f0b849; --bad:#e8794a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:18px 20px 26px;background:var(--bg);color:var(--text);
+       font-family:"Microsoft YaHei","Segoe UI",system-ui,sans-serif;font-size:13px;line-height:1.6}
+  h1{font-size:16px;margin:0 0 4px;font-weight:600}
+  .lead{color:var(--sub);font-size:12px;margin:0 0 14px}
+  .lead b{color:var(--text);font-weight:600}
+
+  .sec{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+       padding:13px 14px;margin-bottom:11px;transition:border-color .15s,opacity .15s}
+  .sec h2{font-size:13px;margin:0 0 9px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .sec h2 .dot{width:18px;height:18px;flex:0 0 18px;border-radius:50%;background:#2a3342;color:var(--sub);
+       font-size:11px;display:flex;align-items:center;justify-content:center;font-weight:700}
+  .sec h2 .tag{font-size:11px;color:var(--sub);font-weight:400}
+  .sec h2 .sp{flex:1}
+  .sec.active{border-color:#3a4658}
+  .sec.active h2 .dot{background:var(--accent);color:#fff}
+  .sec.done h2 .dot{background:var(--accent2);color:#0d1a12}
+  .sec.dim{opacity:.55}
+  .sec .sub{color:var(--sub);font-size:12px;margin:0 0 10px}
+
+  /* 检测结果行 */
+  .rows{display:flex;flex-direction:column;gap:5px;margin-bottom:9px}
+  .r{display:flex;gap:8px;align-items:baseline}
+  .r .k{color:var(--sub);font-size:12px;flex:0 0 78px}
+  .r .v{font-size:12px;word-break:break-all}
+  .r .v.ok{color:var(--accent2)}
+  .r .v.bad{color:var(--warn)}
+  .r .v.run{color:var(--sub)}
+
+  .dirline{display:flex;gap:8px;align-items:center}
+  .dirline .lab{color:var(--sub);font-size:12px;flex:0 0 78px}
+  input[type=text],select{background:#0e131b;color:var(--text);border:1px solid var(--line);
+       border-radius:6px;font-size:12px;font-family:inherit;padding:5px 8px}
+  input[type=text]{flex:1;min-width:0}
+  input:focus,select:focus{outline:none;border-color:var(--accent)}
+  .hint{color:var(--sub);font-size:11.5px;margin-top:7px}
+  .hint.warn{color:var(--warn)}
+  .hidden{display:none !important}
+
+  .btnrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  button{font-family:inherit;cursor:pointer;border-radius:6px;font-size:12.5px}
+  button.go{padding:7px 18px;background:var(--accent);color:#fff;border:none}
+  button.go:hover{background:#3d8ce8}
+  button.go:disabled{background:#3a4658;cursor:default}
+  button.mini{padding:4px 10px;background:var(--panel2);color:var(--text);border:1px solid var(--line);font-size:12px}
+  button.mini:hover{border-color:#3a4658}
+  button.mini:disabled{color:#5a6678;cursor:default;border-color:var(--line)}
+  button.link{background:none;border:none;color:var(--accent);padding:0;font-size:12px}
+  button.link:disabled{color:#5a6678;cursor:default}
+
+  /* 进度条 */
+  .prog{margin-top:11px}
+  .bar{height:8px;background:#0e131b;border:1px solid var(--line);border-radius:5px;overflow:hidden}
+  .bar > i{display:block;height:100%;width:0;background:linear-gradient(90deg,#3d8ce8,#7bd88f);
+       transition:width .25s linear}
+  .bar.indet > i{width:30% !important;animation:slide 1.15s ease-in-out infinite}
+  @keyframes slide{0%{margin-left:0}50%{margin-left:70%}100%{margin-left:0}}
+  .progtext{font-size:11.5px;color:var(--sub);margin-top:6px}
+  .progtext b{color:var(--text);font-weight:600}
+
+  pre.log{margin:9px 0 0;padding:8px 9px;background:#0b0f16;border:1px solid var(--line);border-radius:6px;
+       font-size:11px;line-height:1.5;color:#8f9bb0;max-height:118px;overflow:auto;white-space:pre-wrap;
+       font-family:Consolas,"Cascadia Mono",monospace}
+
+  .tips{font-size:12px;color:var(--sub);margin:0}
+  .tips li{margin-bottom:4px}
+  .tips b{color:var(--text)}
+
+  footer{display:flex;align-items:center;gap:10px;margin-top:14px}
+  footer .sp{flex:1}
+
+  .banner{border-radius:8px;padding:9px 11px;font-size:12px;line-height:1.55;margin-bottom:12px}
+  .banner.info{background:rgba(79,156,249,.08);border:1px solid rgba(79,156,249,.28);color:var(--sub)}
+  .banner.warn{background:rgba(240,184,73,.10);border:1px solid rgba(240,184,73,.32);color:var(--warn)}
+  .banner.ok{background:rgba(123,216,143,.10);border:1px solid rgba(123,216,143,.3);color:var(--accent2)}
+  .banner b{color:var(--text)}
+</style>
+</head>
+<body>
+  <h1>本地模型安装向导</h1>
+  <p class="lead">本地模型要跑起来需要两样东西：<b>Ollama</b>（跑模型的宿主程序，约 1.5 GB）和<b>一个模型文件</b>（约 4.7 GB）。
+  这个向导会替你全部装好，不用记任何命令。中途可以随时关窗，下次接着来。</p>
+
+  <div class="banner info" id="topBanner">
+    想跳过这些？本地模型的好处是断网可用、聊天内容不出本机；如果你更在意"开箱即用"，
+    随时可以在<b>托盘菜单 → 切换聊天大脑</b>里改用云端接口（只需填一个 API Key，无需下载任何东西）。
+  </div>
+
+  <!-- ① 检测 -->
+  <div class="sec" id="sec1">
+    <h2><span class="dot">1</span>环境检测<span class="sp"></span>
+      <button class="mini" id="btnDetect">重新检测</button></h2>
+    <div class="rows" id="rows"></div>
+    <div class="dirline">
+      <span class="lab">模型存放目录</span>
+      <input type="text" id="modelsDir" placeholder="留空用 Ollama 默认目录">
+      <button class="mini" id="btnPickDir">浏览…</button>
+    </div>
+    <div class="hint" id="dirHint"></div>
+  </div>
+
+  <!-- ② 安装 Ollama -->
+  <div class="sec" id="sec2">
+    <h2><span class="dot">2</span>安装 Ollama<span class="tag">约 1.5 GB</span></h2>
+    <p class="sub" id="installNote">安装包不包含 Ollama，需要单独装。点下面的按钮即可：会自动挑一条最快的下载源，
+      下完静默安装（<b>不需要管理员权限、不弹 UAC</b>），你什么都不用点。</p>
+    <div class="btnrow">
+      <button class="go" id="btnInstall">一键安装 Ollama</button>
+      <button class="mini" id="btnManual">浏览器手动下载</button>
+      <button class="mini hidden" id="btnCancelInstall">取消</button>
+    </div>
+    <div class="prog hidden" id="installProg">
+      <div class="bar" id="installBarWrap"><i id="installBar"></i></div>
+      <div class="progtext" id="installText"></div>
+    </div>
+    <pre class="log hidden" id="installLog"></pre>
+  </div>
+
+  <!-- ③ 启动服务 -->
+  <div class="sec" id="sec3">
+    <h2><span class="dot">3</span>启动本地服务</h2>
+    <p class="sub">模型下载之前必须先把这个服务跑起来，否则下载会卡住不动（这是最容易踩的一步）。</p>
+    <div class="btnrow">
+      <button class="go" id="btnServe">启动服务</button>
+      <span class="hint" id="serveState"></span>
+    </div>
+  </div>
+
+  <!-- ④ 下载模型 -->
+  <div class="sec" id="sec4">
+    <h2><span class="dot">4</span>下载聊天模型<span class="tag" id="modelSizeTag">约 4.7 GB</span></h2>
+    <p class="sub">7B 档的中文表现最好，占用显存约 5~6 GB。显卡显存小就选下面更小的档。</p>
+    <div class="btnrow">
+      <select id="modelPreset" style="flex:1;min-width:220px">
+        <option value="qwen2.5:7b-instruct-q4_K_M">qwen2.5:7b-instruct-q4_K_M · 约 4.7 GB · 推荐</option>
+        <option value="qwen2.5:3b-instruct-q4_K_M">qwen2.5:3b-instruct-q4_K_M · 约 1.9 GB · 显存 6 GB 以下选它</option>
+        <option value="qwen2.5:1.5b-instruct-q4_K_M">qwen2.5:1.5b-instruct-q4_K_M · 约 1.0 GB · 核显 / 小内存</option>
+        <option value="__custom__">其它（自己填模型名）</option>
+      </select>
+      <button class="go" id="btnPull">开始下载</button>
+      <button class="mini hidden" id="btnCancelPull">取消</button>
+    </div>
+    <div class="dirline hidden" id="customRow" style="margin-top:9px">
+      <span class="lab">模型名</span>
+      <input type="text" id="modelCustom" placeholder="例如 llama3.2:3b">
+    </div>
+    <div class="prog hidden" id="pullProg">
+      <div class="bar" id="pullBarWrap"><i id="pullBar"></i></div>
+      <div class="progtext" id="pullText"></div>
+    </div>
+    <div class="hint" id="pullHint"></div>
+  </div>
+
+  <!-- ⑤ 完成 -->
+  <div class="sec" id="sec5">
+    <h2><span class="dot">5</span>完成</h2>
+    <ul class="tips">
+      <li><b>第一次回复会慢</b>：模型要加载进显存，约 30~60 秒；之后就都是毫秒级了。</li>
+      <li><b>占用显存</b>：本地模型在跑的时候会占 5~6 GB 显存；切回云端或退出桌宠即释放。</li>
+      <li><b>随时可改</b>：托盘菜单 → 切换聊天大脑，可以在本地 / 云端 / WorkBuddy 之间换。</li>
+    </ul>
+    <div class="btnrow" style="margin-top:10px">
+      <button class="go" id="btnUse">立即使用本地模型</button>
+      <span class="hint" id="useState"></span>
+    </div>
+  </div>
+
+  <footer>
+    <span class="hint" id="footHint"></span>
+    <div class="sp"></div>
+    <button class="mini" id="btnClose">关闭</button>
+  </footer>
+
+<script src="/js/ollama-setup.js"></script>
+</body>
+</html>

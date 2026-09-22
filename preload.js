@@ -207,6 +207,45 @@ contextBridge.exposeInMainWorld('desktopPet', {
     catch (e) { return Promise.resolve({ ok: false }); }
   },
 
+  // ==================== 本地模型安装向导（一键装 Ollama） ====================
+  // 打开向导窗口（选择大脑窗的「一键安装」按钮、托盘菜单都走它）
+  openOllamaSetup: () => { try { ipcRenderer.send('pet:openOllamaSetup'); } catch (e) {} },
+  // 环境检测：{ok, status:{installed,exe,running,models,modelsDir,model,modelReady,disk*}}
+  ollamaDetect: () => {
+    try { return ipcRenderer.invoke('pet:ollamaDetect'); }
+    catch (e) { return Promise.resolve({ ok: false, message: String(e) }); }
+  },
+  // 探下载源：{ok, tag, size, sources:[{id,label,url,ms}]}
+  ollamaProbeSources: () => {
+    try { return ipcRenderer.invoke('pet:ollamaProbeSources'); }
+    catch (e) { return Promise.resolve({ ok: false, message: String(e) }); }
+  },
+  // 一键安装：下载安装包（多源自动切换）→ 静默安装，进度经 onOllamaSetupProgress 推送
+  ollamaInstall: () => {
+    try { return ipcRenderer.invoke('pet:ollamaInstall'); }
+    catch (e) { return Promise.resolve({ ok: false, message: String(e) }); }
+  },
+  ollamaInstallCancel: () => {
+    try { return ipcRenderer.invoke('pet:ollamaInstallCancel'); }
+    catch (e) { return Promise.resolve({ ok: false }); }
+  },
+  // 所有源都不通时的兜底：用浏览器打开官网下载页
+  ollamaOpenDownloadPage: () => {
+    try { return ipcRenderer.invoke('pet:ollamaOpenDownloadPage'); }
+    catch (e) { return Promise.resolve({ ok: false }); }
+  },
+  // 把向导里选的模型目录 / 模型名落盘（起服务时会带上正确的 OLLAMA_MODELS）
+  ollamaSaveLocalCfg: (patch) => {
+    try { return ipcRenderer.invoke('pet:ollamaSaveLocalCfg', patch || {}); }
+    catch (e) { return Promise.resolve({ ok: false, message: String(e) }); }
+  },
+  // 收尾：切到本地模型并让桌宠立即用它
+  ollamaUseLocal: (payload) => { try { ipcRenderer.send('pet:ollamaUseLocal', payload || {}); } catch (e) {} },
+  // 安装进度回调（phase: probe|download|verify|install|done|error|cancelled|log）
+  onOllamaSetupProgress: (cb) => {
+    try { ipcRenderer.on('pet:ollamaSetupProgress', (_e, d) => cb(d || {})); } catch (e) {}
+  },
+
   // 设置页「试播」：让桌宠立即播放指定绑定
   triggerAsset: (id) => {
     try { return ipcRenderer.invoke('pet:triggerAsset', id); }

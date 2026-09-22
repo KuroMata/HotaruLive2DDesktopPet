@@ -9,7 +9,7 @@ const crypto = require('crypto');
 const path = require('path');
 const electron = require('electron');
 const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, screen,
-        dialog, globalShortcut } = electron;
+        dialog, globalShortcut, shell } = electron;
 
 // 汉字转拼音（元音口型对照用）：在主进程加载，经 ipcMain.handle('pet:pinyin') 暴露给渲染进程。
 // 之前的做法是让 preload.js 直接 require('pinyin-pro')，但它在 Electron 渲染子进程里会抛错、
@@ -534,6 +534,413 @@ function ollamaStop() {
   ollamaState.running = false;
   ollamaState.pid = 0;
 }
+
+// ---------------------------------------------------------------------------
+// 本地模型安装向导（"一键装 Ollama"的后端）
+// ---------------------------------------------------------------------------
+// 为什么需要：安装包刻意不带 Ollama（安装包本身 1.5 GB，模型还要另拉 4.7 GB），
+// 于是新用户第一次选「本地模型」时只会看到一句"请先安装 Ollama"，门槛全落在他身上。
+// 这里把整条链路做成一键：探活下载源 → 下载安装包 → 静默安装 → 起服务 → 拉模型。
+//
+// 四条实测纪律（都踩过，别改）：
+// 1) **GitHub release 直连在国内经常不通**，winget 也栽在同一处（报
+//    InternetOpenUrl() failed. 0x80072efd）。所以下载源必须带镜像，且真的逐个探活、
+//    失败自动换下一个，不能让用户对着"下载失败"自己想办法。
+// 2) **静默安装必须带 /CURRENTUSER**：Ollama 的安装器是 Inno Setup，带这个参数才是
+//    每用户安装，不需要管理员、不弹 UAC；不带它会去写 Program Files，要么要提权要么直接失败。
+// 3) **必须先 serve 再 pull**。没有服务时 pull 会自己起一个然后超时卡死（进程活着、
+//    日志一动不动，看着像网络问题）。向导的步骤顺序就是照这个排的，不要调换。
+// 4) **服务与 pull 必须看到同一个 OLLAMA_MODELS**。向导先把模型目录写进配置，再拉起
+//    服务（ollamaStart 会读这个配置带上环境变量），顺序反了就会出现"拉完了却找不到模型"。
+// ---------------------------------------------------------------------------
+const OLLAMA_SETUP_FALLBACK_TAG = 'v0.34.2';   // GitHub API 拿不到时用的兜底版本
+const OLLAMA_SETUP_FILE = 'OllamaSetup.exe';
+// 顺序不重要（会并发探活按延迟排序），但必须包含直连：境外网络下直连往往最快。
+const OLLAMA_SETUP_MIRRORS = [
+  { id: 'ghproxy', label: 'gh-proxy 镜像', prefix: 'https://gh-proxy.com/' },
+  { id: 'ghfast', label: 'ghfast 镜像', prefix: 'https://ghfast.top/' },
+  { id: 'ghproxy2', label: 'ghproxy 备用镜像', prefix: 'https://mirror.ghproxy.com/' },
+  { id: 'direct', label: 'GitHub 直连', prefix: '' }
+];
+let ollamaSetupTag = '';        // 解析到的 release tag（缓存，避免每次重探）
+let ollamaSetupAsset = null;    // { tag, url, size, sha256 }
+let ollamaSetupJob = null;      // 进行中的安装任务：{ cancelled, abort, child }
+let ollamaSetupWin = null;      // 向导窗口
+
+function setupDir() {
+  return path.join(require('os').tmpdir(), 'ollama-setup');
+}
+
+// 统一的 GET：自动跟随重定向（GitHub release 会跳到 objects.githubusercontent.com，
+// 镜像站也多是一跳 302）。回调拿到的是最终的 res 流，调用方自己决定读法。
+function followGet(url, opts, onRes, onErr, hops) {
+  hops = hops || 0;
+  if (hops > 6) return onErr(new Error('重定向次数过多'));
+  let u;
+  try { u = new URL(url); } catch (e) { return onErr(new Error('地址不合法：' + url)); }
+  const mod = u.protocol === 'http:' ? http : https;
+  const req = mod.get({
+    hostname: u.hostname,
+    port: u.port || (u.protocol === 'http:' ? 80 : 443),
+    path: u.pathname + u.search,
+    headers: Object.assign({ 'User-Agent': 'HotaruDesktopPet-OllamaWizard' }, (opts && opts.headers) || {}),
+    timeout: (opts && opts.timeout) || 20000
+  }, (res) => {
+    const code = res.statusCode || 0;
+    if ([301, 302, 303, 307, 308].indexOf(code) >= 0 && res.headers.location) {
+      res.resume();
+      return followGet(new URL(res.headers.location, url).toString(), opts, onRes, onErr, hops + 1);
+    }
+    onRes(res, req);
+  });
+  req.on('error', onErr);
+  req.on('timeout', () => { try { req.destroy(); } catch (e) {} onErr(new Error('连接超时')); });
+  req.end();
+  return req;
+}
+
+// 解析最新 release：拿 tag、体积、官方 sha256（用于下载后校验，防止半截包被当成装完）
+function resolveOllamaAsset() {
+  if (ollamaSetupAsset) return Promise.resolve(ollamaSetupAsset);
+  return new Promise((resolve) => {
+    const fallback = () => {
+      const tag = OLLAMA_SETUP_FALLBACK_TAG;
+      ollamaSetupTag = tag;
+      ollamaSetupAsset = {
+        tag: tag,
+        url: 'https://github.com/ollama/ollama/releases/download/' + tag + '/' + OLLAMA_SETUP_FILE,
+        size: 0,
+        sha256: '',
+        source: 'fallback'
+      };
+      resolve(ollamaSetupAsset);
+    };
+    githubJson('https://api.github.com/repos/ollama/ollama/releases/latest', (err, j) => {
+      if (err || !j || !j.tag_name) { log('ollama wizard: release API 不可用（' + (err && err.message) + '），用兜底版本 ' + OLLAMA_SETUP_FALLBACK_TAG); return fallback(); }
+      const a = (j.assets || []).filter((x) => x.name === OLLAMA_SETUP_FILE)[0];
+      if (!a) return fallback();
+      ollamaSetupTag = j.tag_name;
+      ollamaSetupAsset = {
+        tag: j.tag_name,
+        url: a.browser_download_url,
+        size: a.size || 0,
+        sha256: String(a.digest || '').replace(/^sha256:/, ''),
+        source: 'api'
+      };
+      log('ollama wizard: 最新版 ' + j.tag_name + '  安装包 ' + (a.size / 1048576).toFixed(0) + ' MB');
+      resolve(ollamaSetupAsset);
+    });
+  });
+}
+
+function githubJson(url, cb) {
+  followGet(url, { headers: { 'Accept': 'application/vnd.github+json' }, timeout: 15000 }, (res) => {
+    if (res.statusCode !== 200) { res.resume(); return cb(new Error('HTTP ' + res.statusCode)); }
+    let b = '';
+    res.setEncoding('utf8');
+    res.on('data', (c) => { b += c; if (b.length > 4e6) { try { res.destroy(); } catch (e) {} } });
+    res.on('end', () => { try { cb(null, JSON.parse(b)); } catch (e) { cb(e); } });
+  }, cb);
+}
+
+// 把官方地址套上各镜像前缀
+function setupCandidates(asset) {
+  return OLLAMA_SETUP_MIRRORS.map((m) => ({
+    id: m.id, label: m.label, url: m.prefix + asset.url
+  }));
+}
+
+// 逐个探活：只要前 1KB 能拿到就说明这条源通。返回按延迟升序的可用源。
+function probeSetupSources(cands) {
+  return Promise.all(cands.map((c) => new Promise((resolve) => {
+    const t0 = Date.now();
+    let settled = false;
+    const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+    try {
+      followGet(c.url, { headers: { Range: 'bytes=0-1023' }, timeout: 12000 }, (res) => {
+        const code = res.statusCode || 0;
+        const ok = code === 200 || code === 206;
+        res.resume();
+        if (!ok) return done(null);
+        done({ id: c.id, label: c.label, url: c.url, ms: Date.now() - t0 });
+      }, () => done(null));
+    } catch (e) { done(null); }
+    // 兜底：12s 内没有任何回调就当这条源不通
+    setTimeout(() => done(null), 13000);
+  }))).then((list) => list.filter(Boolean).sort((a, b) => a.ms - b.ms));
+}
+
+// 把向导进度推给向导窗口（窗口没开就静默丢弃，不报错）
+function setupEmit(obj) {
+  try {
+    if (ollamaSetupWin && !ollamaSetupWin.isDestroyed()) {
+      ollamaSetupWin.webContents.send('pet:ollamaSetupProgress', obj);
+    }
+  } catch (e) {}
+}
+
+function setupLog(msg) {
+  log('[ollama-wizard] ' + msg);
+  setupEmit({ phase: 'log', message: String(msg) });
+}
+
+// 下载安装包（支持断点续传 + 换源重试）。dest = 目标 .exe 路径。
+function downloadSetupFile(src, dest, job) {
+  return new Promise((resolve, reject) => {
+    const part = dest + '.part';
+    const meta = dest + '.part.meta';
+    let startAt = 0;
+    try {
+      // 续传只在"同一个源下到一半"时才有意义；换了源就从零开始，避免拼接出坏包
+      if (fs.existsSync(part) && fs.existsSync(meta) && fs.readFileSync(meta, 'utf8').trim() === src.url) {
+        startAt = fs.statSync(part).size;
+      } else {
+        try { fs.unlinkSync(part); } catch (e) {}
+      }
+    } catch (e) { startAt = 0; }
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    try { fs.writeFileSync(meta, src.url, 'utf8'); } catch (e) {}
+
+    const headers = { 'User-Agent': 'HotaruDesktopPet-OllamaWizard' };
+    if (startAt > 0) headers.Range = 'bytes=' + startAt + '-';
+    const out = fs.createWriteStream(part, { flags: startAt > 0 ? 'a' : 'w' });
+    let got = startAt;
+    let total = startAt;
+    let lastTick = 0;
+    let done = false;
+
+    const fail = (msg) => {
+      if (done) return;
+      done = true;
+      try { out.destroy(); } catch (e) {}
+      reject(new Error(msg));
+    };
+
+    const req = followGet(src.url, { headers: headers, timeout: 30000 }, (res) => {
+      if (res.statusCode === 416) {  // Range 越界：本地那份其实已经下完了
+        res.resume();
+        if (done) return;
+        done = true;
+        try { out.destroy(); } catch (e) {}
+        return resolve({ resumed: startAt > 0, bytes: startAt });
+      }
+      if (res.statusCode !== 200 && res.statusCode !== 206) {
+        res.resume();
+        return fail('HTTP ' + res.statusCode);
+      }
+      if (res.statusCode === 200 && startAt > 0) {
+        // 服务端不认 Range：从头写，别把两段拼在一起
+        got = 0; total = 0;
+        try { fs.truncateSync(part, 0); } catch (e) {}
+      }
+      const cl = Number(res.headers['content-length'] || 0);
+      if (cl > 0) total = cl + (res.statusCode === 206 ? startAt : 0);
+      res.on('data', (chunk) => {
+        got += chunk.length;
+        const now = Date.now();
+        if (now - lastTick > 350) {
+          lastTick = now;
+          if (job) job.bytes = got;
+          setupEmit({
+            phase: 'download', percent: total ? Math.min(100, (got / total) * 100) : 0,
+            message: '正在下载安装包…', bytes: got, total: total, source: src.label
+          });
+        }
+      });
+      res.on('error', (e) => fail(e.message || '下载中断'));
+      res.pipe(out);
+      out.on('error', (e) => fail(e.message || '写入失败'));
+      out.on('finish', () => {
+        if (done) return;
+        done = true;
+        resolve({ resumed: startAt > 0, bytes: got });
+      });
+    }, (e) => fail(e.message || '连接失败'));
+
+    if (job) {
+      job.abort = () => { try { req.destroy(); } catch (e) {} fail('已取消'); };
+    }
+  });
+}
+
+function sha256File(p) {
+  return new Promise((resolve) => {
+    const h = crypto.createHash('sha256');
+    const s = fs.createReadStream(p);
+    s.on('data', (d) => h.update(d));
+    s.on('error', () => resolve(''));
+    s.on('end', () => resolve(h.digest('hex')));
+  });
+}
+
+// 静默安装。/CURRENTUSER = 每用户安装，免管理员免 UAC（见文件头纪律 2）
+function installOllamaSilently(exePath) {
+  return new Promise((resolve) => {
+    const { spawn } = require('child_process');
+    let child;
+    try {
+      child = spawn(exePath, ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', '/NOICONS'],
+        { windowsHide: true, stdio: 'ignore' });
+    } catch (e) {
+      return resolve({ ok: false, message: '无法启动安装程序：' + (e && e.message) });
+    }
+    if (ollamaSetupJob) ollamaSetupJob.child = child;
+    child.on('error', (e) => resolve({ ok: false, message: '安装程序启动失败：' + (e && e.message) }));
+    child.on('exit', (code) => resolve({ ok: true, code: code }));
+  });
+}
+
+// 等 ollama.exe 落盘（安装器退出到文件就位之间有几十毫秒差）
+async function waitForOllamaExe(maxWaitMs) {
+  const t0 = Date.now();
+  const limit = maxWaitMs || 45000;
+  while (Date.now() - t0 < limit) {
+    const exe = ollamaExe();
+    try { if (exe !== 'ollama' && fs.existsSync(exe)) return exe; } catch (e) {}
+    await new Promise((r) => setTimeout(r, 800));
+  }
+  return '';
+}
+
+// 检测当前环境：装没装 / 跑没跑 / 有哪些模型 / 目标目录与磁盘余量
+function ollamaDetectSync() {
+  const exe = ollamaExe();
+  let installed = false, exePath = '';
+  try {
+    if (exe !== 'ollama' && fs.existsSync(exe)) { installed = true; exePath = exe; }
+  } catch (e) {}
+  const lc = (CONFIG.chat && CONFIG.chat.local) || {};
+  const model = lc.model || 'qwen2.5:7b-instruct-q4_K_M';
+  let dir = lc.modelsDir || ollamaModelsDir() || '';
+  if (!dir) {
+    try { dir = path.join(require('os').homedir(), '.ollama', 'models'); } catch (e) { dir = ''; }
+  }
+  // 磁盘余量：装包落在 temp、模型落在 dir，两个都要看
+  const disk = (p) => {
+    try {
+      const s = fs.statfsSync(p);
+      return { path: p, freeBytes: s.bavail * s.bsize, totalBytes: s.blocks * s.bsize };
+    } catch (e) { return { path: p, freeBytes: -1, totalBytes: -1 }; }
+  };
+  return {
+    installed: installed,
+    exe: exePath || (exe === 'ollama' ? '(PATH 里的 ollama)' : ''),
+    running: !!ollamaState.running,
+    port: ollamaPort(),
+    model: model,
+    models: [],
+    modelsDir: dir,
+    modelsDirConfigured: !!lc.modelsDir,
+    freeSpaceOk: true,
+    diskModels: disk(dir || 'C:\\'),
+    diskTemp: disk(setupDir().slice(0, 3)),
+    tag: ollamaSetupTag || OLLAMA_SETUP_FALLBACK_TAG
+  };
+}
+
+// 探服务的实时状态 + 已装模型（带体积，用于"下没下好"）
+function ollamaQueryModels() {
+  return new Promise((resolve) => {
+    const req = http.get({
+      host: OLLAMA_HOST, port: ollamaPort(), path: '/api/tags', method: 'GET', timeout: 2500
+    }, (res) => {
+      let b = '';
+      res.setEncoding('utf8');
+      res.on('data', (c) => { b += c; });
+      res.on('end', () => {
+        try {
+          const j = JSON.parse(b);
+          resolve({
+            running: true,
+            models: (j.models || []).map((m) => ({ name: m.name || '', size: m.size || 0, modified: m.modified_at || '' }))
+          });
+        } catch (e) { resolve({ running: false, models: [] }); }
+      });
+    });
+    req.on('error', () => resolve({ running: false, models: [] }));
+    req.on('timeout', () => { try { req.destroy(); } catch (e) {} resolve({ running: false, models: [] }); });
+  });
+}
+
+// 完整的一键安装流程。任何一步失败都返回可读原因，不抛。
+async function ollamaWizardInstall() {
+  if (ollamaSetupJob && !ollamaSetupJob.cancelled && ollamaSetupJob.phase && ollamaSetupJob.phase !== 'done') {
+    return { ok: false, message: '已有一个安装任务在进行中' };
+  }
+  const job = { cancelled: false, phase: 'probe', abort: null, child: null, bytes: 0 };
+  ollamaSetupJob = job;
+  const t0 = Date.now();
+  try {
+    setupEmit({ phase: 'probe', percent: 0, message: '正在解析最新版本…' });
+    const asset = await resolveOllamaAsset();
+    if (job.cancelled) throw new Error('已取消');
+
+    setupEmit({ phase: 'probe', percent: 0, message: '正在探测下载源（' + OLLAMA_SETUP_MIRRORS.length + ' 个）…', tag: asset.tag, size: asset.size });
+    const alive = await probeSetupSources(setupCandidates(asset));
+    if (job.cancelled) throw new Error('已取消');
+    if (!alive.length) throw new Error('所有下载源都连不上。请点「打开官网手动下载」用浏览器下载后手动安装');
+    setupEmit({ phase: 'probe', percent: 100, sources: alive, message: '可用下载源：' + alive.map((a) => a.label + ' ' + a.ms + 'ms').join('、') });
+
+    // 下载：按探活顺序逐个试，前一个失败就换下一个（1.5 GB，单源失败很常见）
+    let dest = path.join(setupDir(), OLLAMA_SETUP_FILE);
+    let lastErr = '';
+    let okDownload = false;
+    for (let i = 0; i < alive.length && !job.cancelled; i++) {
+      const src = alive[i];
+      try {
+        setupEmit({ phase: 'download', percent: 0, source: src.label, message: '正在从 ' + src.label + ' 下载安装包…' });
+        setupLog('下载源 #' + (i + 1) + '：' + src.label + '  (' + src.url + ')');
+        await downloadSetupFile(src, dest, job);
+        okDownload = true;
+        break;
+      } catch (e) {
+        lastErr = (e && e.message) || String(e);
+        setupLog('该源失败：' + lastErr + '，换下一个');
+      }
+    }
+    if (job.cancelled) throw new Error('已取消');
+    if (!okDownload) throw new Error('下载安装包失败：' + lastErr);
+
+    // 校验：官方给了 sha256 就比对，避免半截包被当成装完（装到一半失败很难排查）
+    if (asset.sha256) {
+      setupEmit({ phase: 'verify', percent: 100, message: '正在校验安装包完整性…' });
+      const h = await sha256File(dest);
+      if (h && h.toLowerCase() !== asset.sha256.toLowerCase()) {
+        try { fs.unlinkSync(dest); } catch (e) {}
+        throw new Error('安装包校验失败（下载不完整），请重试');
+      }
+      setupLog('sha256 校验通过');
+    }
+    const part = dest + '.part';
+    try { if (fs.existsSync(part)) fs.unlinkSync(part); } catch (e) {}
+    try { fs.unlinkSync(dest + '.part.meta'); } catch (e) {}
+
+    const sizeOk = fs.statSync(dest).size;
+    setupEmit({ phase: 'install', percent: 0, message: '正在静默安装（约 1~3 分钟，请勿关闭）…', bytes: sizeOk, total: sizeOk });
+    job.phase = 'install';
+    const r = await installOllamaSilently(dest);
+    if (job.cancelled) throw new Error('已取消');
+    if (!r.ok) throw new Error(r.message || '安装失败');
+    setupLog('安装程序已退出（code=' + r.code + '），等待 ollama.exe 就位…');
+    const exe = await waitForOllamaExe(45000);
+    if (!exe) throw new Error('安装程序已结束，但没有找到 ollama.exe。请到 Ollama 官网确认安装是否完成');
+    setupLog('已就位：' + exe);
+    try { fs.unlinkSync(dest); } catch (e) {}
+
+    job.phase = 'done';
+    setupEmit({ phase: 'done', percent: 100, message: 'Ollama 安装完成', exe: exe, elapsedMs: Date.now() - t0 });
+    return { ok: true, exe: exe, elapsedMs: Date.now() - t0 };
+  } catch (e) {
+    const msg = (e && e.message) || String(e);
+    const cancelled = job.cancelled || /已取消/.test(msg);
+    job.phase = 'done';
+    setupEmit({ phase: cancelled ? 'cancelled' : 'error', percent: 0, message: cancelled ? '已取消' : msg });
+    return { ok: false, cancelled: cancelled, message: msg };
+  } finally {
+    if (ollamaSetupJob === job) { ollamaSetupJob.phase = 'done'; }
+  }
+}
+
 function audioReq(method, pathname, body) {
   return new Promise((resolve) => {
     const payload = body ? Buffer.from(JSON.stringify(body)) : null;
@@ -1744,7 +2151,7 @@ function showAndFocus(win, tag) {
 }
 // 当前还活着的窗口里最"该被提到前台"的一个（主窗口优先，其次设置/选择/调试窗）
 function firstAliveWindow() {
-  const cands = [mainWin, settingsWin, brainWin, debugWin, screenDebugWin, musicDebugWin];
+  const cands = [mainWin, settingsWin, brainWin, ollamaSetupWin, debugWin, screenDebugWin, musicDebugWin];
   for (let i = 0; i < cands.length; i++) {
     const w = cands[i];
     try { if (w && !w.isDestroyed()) return w; } catch (e) {}
@@ -1954,6 +2361,70 @@ function toggleMusicDebugPanel() {
   }
 }
 
+// 本地模型安装向导窗口：新用户第一次选「本地模型」时的落地页。
+// 它自己不碰系统，所有安装动作都在主进程（下载/静默安装要写文件、起进程），
+// 页面只负责显示与驱动；进度经 pet:ollamaSetupProgress 推进来。
+function createOllamaSetupWindow() {
+  if (ollamaSetupWin && !ollamaSetupWin.isDestroyed()) { showAndFocus(ollamaSetupWin, '本地模型向导(已存在)'); return; }
+  const w = new BrowserWindow({
+    width: 720, height: 800,
+    minWidth: 560, minHeight: 560,
+    title: '本地模型安装向导',
+    backgroundColor: '#11151c',
+    autoHideMenuBar: true,
+    show: false,   // 同选择窗/调试窗：等 ready-to-show 再显示，避免托盘菜单展开时抢前台触发错误音
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
+      preload: path.join(__dirname, 'preload.js')
+    }
+  });
+  w.loadURL('http://127.0.0.1:' + PORT + '/ollama-setup.html');
+  placeNearPet(w, 720, 800);
+  // 三重显示保险（与设置窗/选择窗一致）：任一事件/超时先到即显示
+  w.once('ready-to-show', () => showAndFocus(w, '本地模型向导(ready-to-show)'));
+  w.webContents.once('did-finish-load', () => showAndFocus(w, '本地模型向导(did-finish-load)'));
+  w.on('did-fail-load', (_e, code, desc) => {
+    log('本地模型向导页加载失败 code=' + code + ' ' + desc + '（仍强制显示窗口）');
+    showAndFocus(w, '本地模型向导(did-fail-load)');
+  });
+  setTimeout(() => { if (!w.isDestroyed()) showAndFocus(w, '本地模型向导(超时兜底)'); }, 1500);
+  w.on('closed', () => {
+    ollamaSetupWin = null;
+    // 关窗即取消进行中的安装任务：否则下载会在看不见的地方继续跑，
+    // 用户以为已经取消、后台却还在吃流量和磁盘。已下好的 .part 会保留，下次能续传。
+    if (ollamaSetupJob && ollamaSetupJob.phase && ollamaSetupJob.phase !== 'done') {
+      ollamaSetupJob.cancelled = true;
+      try { if (ollamaSetupJob.abort) ollamaSetupJob.abort(); } catch (e) {}
+    }
+  });
+  ollamaSetupWin = w;
+  log('ollama setup window created');
+}
+
+function toggleOllamaSetupPanel() {
+  if (ollamaSetupWin && !ollamaSetupWin.isDestroyed()) {
+    // 安装任务进行中时不要一关就断线（任务会在看不见的窗口里继续跑，用户以为取消了）
+    if (ollamaSetupJob && ollamaSetupJob.phase && ollamaSetupJob.phase !== 'done') {
+      showAndFocus(ollamaSetupWin, '本地模型向导(安装中，仅前置)');
+      return;
+    }
+    try { ollamaSetupWin.close(); } catch (e) {}
+    ollamaSetupWin = null;
+    return;
+  }
+  // 与其它面板一致：延后到托盘菜单关闭后再建窗，否则菜单模态循环里同步建窗会抢不到前台焦点
+  try {
+    setTimeout(() => {
+      try { createOllamaSetupWindow(); }
+      catch (e) { console.error('[ollama-wizard] 创建窗口失败：', e && e.stack || e); }
+    }, 60);
+  } catch (e) {
+    console.error('[ollama-wizard] toggle 失败：', e && e.stack || e);
+  }
+}
+
 // 设置窗口：独立的不透明窗口，渲染 app/settings.html（由本地静态服务托管）。
 // 复用与调试面板相同的 preload（contextBridge 已暴露 getConfig/setConfig）。
 function openSettings() {
@@ -2089,6 +2560,10 @@ function buildTrayMenu() {
       label: '切换聊天大脑…（当前：' + brainLabel() + '）',
       // 延后到菜单关闭后再建窗，避免菜单模态循环里同步建窗抢前台（错误音/窗口不弹/托盘失灵）
       click: () => deferMenuAction(() => openBrainChooser(() => pushBrain(true)), '切换聊天大脑')
+    },
+    {
+      label: '本地模型安装向导…',
+      click: () => { toggleOllamaSetupPanel(); }
     },
     { type: 'separator' },
     {
@@ -2816,6 +3291,104 @@ ipcMain.handle('pet:ollamaStatus', async () => ({
 
 // 手动关闭（只关我们自己拉起的那个）
 ipcMain.handle('pet:ollamaStop', async () => { ollamaStop(); return { ok: true }; });
+
+// ---------------------------------------------------------------------------
+// 本地模型安装向导的 IPC
+// ---------------------------------------------------------------------------
+// 向导窗口的四个动作：检测 → 装 Ollama → 起服务 → 拉模型。
+// 「拉模型」不在主进程做：它的进度是 NDJSON 流，走既有的 /api/ollama 同源代理
+// 由页面自己读流算百分比最省事，也不需要新增 IPC。
+
+// 打开向导（选择大脑窗的按钮 / 其它页面都能用）
+ipcMain.on('pet:openOllamaSetup', () => { toggleOllamaSetupPanel(); });
+
+// 环境检测：装没装、跑没跑、模型在不在、放哪、磁盘够不够
+ipcMain.handle('pet:ollamaDetect', async () => {
+  try {
+    const st = ollamaDetectSync();
+    const q = await ollamaQueryModels();
+    st.running = q.running;
+    st.models = q.models;
+    const base = String(st.model || '').split(':')[0];
+    st.modelReady = q.models.some((m) => m.name === st.model || String(m.name).split(':')[0] === base);
+    // 空间判断：模型 4.7 GB 是 7B 档的经验值；装包下载在 temp（约 1.5 GB）
+    st.needBytes = 4.7 * 1073741824;
+    st.diskModelsOk = st.diskModels.freeBytes < 0 ? true : st.diskModels.freeBytes > st.needBytes;
+    st.diskTempOk = st.diskTemp.freeBytes < 0 ? true : st.diskTemp.freeBytes > 1.8 * 1073741824;
+    st.busy = !!(ollamaSetupJob && ollamaSetupJob.phase && ollamaSetupJob.phase !== 'done');
+    st.asset = ollamaSetupAsset ? { tag: ollamaSetupAsset.tag, size: ollamaSetupAsset.size } : null;
+    return { ok: true, status: st };
+  } catch (e) {
+    return { ok: false, message: String((e && e.message) || e) };
+  }
+});
+
+// 单独探下载源（页面想先展示"哪条源能用"时用；一键安装内部也会探一次）
+ipcMain.handle('pet:ollamaProbeSources', async () => {
+  try {
+    const asset = await resolveOllamaAsset();
+    const alive = await probeSetupSources(setupCandidates(asset));
+    return { ok: true, tag: asset.tag, size: asset.size, sources: alive };
+  } catch (e) {
+    return { ok: false, message: String((e && e.message) || e) };
+  }
+});
+
+// 一键安装（下载 + 静默安装）。进度全程经 pet:ollamaSetupProgress 推送。
+ipcMain.handle('pet:ollamaInstall', async () => {
+  try {
+    return await ollamaWizardInstall();
+  } catch (e) {
+    return { ok: false, message: String((e && e.message) || e) };
+  }
+});
+
+ipcMain.handle('pet:ollamaInstallCancel', async () => {
+  if (ollamaSetupJob && ollamaSetupJob.phase && ollamaSetupJob.phase !== 'done') {
+    ollamaSetupJob.cancelled = true;
+    try { if (ollamaSetupJob.abort) ollamaSetupJob.abort(); } catch (e) {}
+    try { if (ollamaSetupJob.child) ollamaSetupJob.child.kill(); } catch (e) {}
+  }
+  return { ok: true };
+});
+
+// 兜底：所有源都不通时，让用户用浏览器自己下（浏览器有系统代理，往往比我们通）
+ipcMain.handle('pet:ollamaOpenDownloadPage', async () => {
+  try { await shell.openExternal('https://ollama.com/download/windows'); return { ok: true }; }
+  catch (e) { return { ok: false, message: String((e && e.message) || e) }; }
+});
+
+// 向导把模型目录/模型名落盘（再起服务时 ollamaStart 就会带上正确的 OLLAMA_MODELS）
+ipcMain.handle('pet:ollamaSaveLocalCfg', async (_e, patch) => {
+  try {
+    const p = patch || {};
+    CONFIG.chat = CONFIG.chat || {};
+    CONFIG.chat.local = CONFIG.chat.local || {};
+    if (typeof p.modelsDir === 'string' && p.modelsDir.trim()) CONFIG.chat.local.modelsDir = p.modelsDir.trim();
+    if (typeof p.model === 'string' && p.model.trim()) CONFIG.chat.local.model = p.model.trim();
+    saveConfig();
+    log('ollama wizard: 配置已更新 modelsDir=' + (CONFIG.chat.local.modelsDir || '(默认)') + ' model=' + (CONFIG.chat.local.model || ''));
+    return { ok: true };
+  } catch (e) { return { ok: false, message: String((e && e.message) || e) }; }
+});
+
+// 向导收尾：切到本地模型并立即下发（等价于选择窗点确定，只是不关选择窗）
+ipcMain.on('pet:ollamaUseLocal', (_e, payload) => {
+  try {
+    const p = payload || {};
+    if (p.model) { CONFIG.chat = CONFIG.chat || {}; CONFIG.chat.local = CONFIG.chat.local || {}; CONFIG.chat.local.model = String(p.model); }
+    CONFIG.chat = CONFIG.chat || {};
+    CONFIG.chat.backend = 'local';
+    if (typeof p.askEveryStart === 'boolean') CONFIG.chat.askEveryStart = p.askEveryStart;
+    saveConfig();
+    log('ollama wizard: 已切到本地模型 ' + (CONFIG.chat.local.model || ''));
+    pushBrain(true);   // warm=true：趁现在把权重装进显存
+    // 通知所有窗口刷新（选择大脑窗要重新探测，否则还显示"没安装"）
+    [brainWin, settingsWin, ollamaSetupWin].forEach((w) => {
+      try { if (w && !w.isDestroyed()) w.webContents.send('pet:ollamaReady', { model: (CONFIG.chat.local && CONFIG.chat.local.model) || '' }); } catch (e) {}
+    });
+  } catch (e) { log('ollamaUseLocal failed: ' + e.message); }
+});
 
 ipcMain.handle('pet:probeLocalModel', async () => {
   const base = (CONFIG.chat && CONFIG.chat.local && CONFIG.chat.local.baseUrl) || 'http://127.0.0.1:11434';

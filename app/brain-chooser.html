@@ -30,6 +30,11 @@
   .probe.ok{color:var(--accent2);display:block}
   .probe.bad{color:var(--warn);display:block}
   .probe.run{color:var(--sub);display:block}
+  /* 探测失败时的「一键安装 / 一键下载」入口：把人送到向导窗口，而不是只给一句提示 */
+  .probe-fix{margin-top:5px;padding:3px 9px;background:#1b2739;color:var(--accent);
+       border:1px solid rgba(79,156,249,.45);border-radius:6px;font-size:11.5px;
+       font-family:inherit;cursor:pointer}
+  .probe-fix:hover{background:#213048;border-color:var(--accent)}
 
   label.f{display:block;margin-bottom:9px}
   label.f > span{display:block;color:var(--sub);font-size:11px;margin-bottom:3px}

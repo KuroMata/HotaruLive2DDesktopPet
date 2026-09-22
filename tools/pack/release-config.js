@@ -1,7 +1,15 @@
 /**
- * 打包用的「发布配置」切换器。
+ * 打包用的「发布配置」切换器。⚠️ 2026-09-22 起**已不再需要**——见下方「现状」。
  *
- * === 为什么需要 ===
+ * === 现状（2026-09-22 起）===
+ * package.json 的 build.files 已加 `"!app/config.json"`：**config.json 不再进包**。
+ * 安装版首启因此直接走 main.js 的内置默认 —— 内置模型路径（app/models/Hotaru2024）、
+ * 默认云端 + 弹「选择聊天大脑」、屏幕追踪与音律识别默认关、chromiumSandbox 缺省即 no-sandbox，
+ * 正好就是发布配置想达到的效果，于是 apply / restore 这一步可以整段省掉。
+ * 保留本脚本的原因：① 以后若又想"把某份配置带进包"，改动前先看这里；
+ * ② 它记录了「本机路径」与「发布值」的差异（modelServeBase / modelUrl / acpCwd）。
+ *
+ * === 为什么需要（历史）===
  *
  * 源码里的 app/config.json 是**本机调好的状态**，含几处只在本机成立的绝对路径：
  *   modelServeBase : D:\SteamLibrary\...\Live2DModels\Hotaru2024   （我的 VTS 模型库）

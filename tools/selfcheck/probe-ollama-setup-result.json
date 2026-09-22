@@ -1,0 +1,262 @@
+{
+  "at": "2026-09-22T03:37:22.911Z",
+  "total": 49,
+  "pass": 49,
+  "fail": 0,
+  "calls": {
+    "detect": 24,
+    "install": 1,
+    "saveLocalCfg": 4,
+    "pull": 3,
+    "pullBody": "{\"model\":\"qwen2.5:7b-instruct-q4_K_M\",\"stream\":true}",
+    "tags": 6
+  },
+  "jsErrors": [],
+  "results": [
+    {
+      "name": "向导页可加载",
+      "pass": true,
+      "detail": "readyState complete"
+    },
+    {
+      "name": "页面 boot() 跑通且渲染出检测行",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "①全新：显示未安装",
+      "pass": true,
+      "detail": "Ollama 程序\n✗ 还没安装（第 2 步会替你装好）\n后台服务\n✗ 没在跑\n聊天模型\n✗ 等服务起来后再下\n磁盘空间\nC:\\Users\\x\\.ollama\\models 所在盘可用 70.00 GB"
+    },
+    {
+      "name": "①全新：安装按钮可用",
+      "pass": true,
+      "detail": "actual=false expected=false"
+    },
+    {
+      "name": "①全新：启动服务按钮禁用",
+      "pass": true,
+      "detail": "actual=true expected=true"
+    },
+    {
+      "name": "①全新：下载模型按钮禁用",
+      "pass": true,
+      "detail": "actual=true expected=true"
+    },
+    {
+      "name": "①全新：收尾按钮禁用",
+      "pass": true,
+      "detail": "actual=true expected=true"
+    },
+    {
+      "name": "①全新：第2步高亮",
+      "pass": true,
+      "detail": "sec active"
+    },
+    {
+      "name": "①全新：第5步置灰",
+      "pass": true,
+      "detail": "sec dim"
+    },
+    {
+      "name": "②已装未跑：显示已安装",
+      "pass": true,
+      "detail": "Ollama 程序\n✓ 已安装　C:\\Users\\x\\AppData\\Local\\Programs\\Ollama\\ollama.exe\n后台服务\n✗ 没在跑（第 3 步启动）\n聊天模型\n✗ 等服务起来后再下\n磁盘空间\nC:\\Users\\x\\"
+    },
+    {
+      "name": "②已装未跑：安装按钮禁用（已装好）",
+      "pass": true,
+      "detail": "actual=true expected=true"
+    },
+    {
+      "name": "②已装未跑：安装按钮文案变化",
+      "pass": true,
+      "detail": "actual=\"已经装好了\" expected=\"已经装好了\""
+    },
+    {
+      "name": "②已装未跑：可启动服务",
+      "pass": true,
+      "detail": "actual=false expected=false"
+    },
+    {
+      "name": "②已装未跑：仍不能下载模型",
+      "pass": true,
+      "detail": "actual=true expected=true"
+    },
+    {
+      "name": "③服务在跑：显示没下载",
+      "pass": true,
+      "detail": "Ollama 程序\n✓ 已安装　C:\\x\\ollama.exe\n后台服务\n✓ 正在运行（端口 11434）\n聊天模型\n✗ 还没下载　qwen2.5:7b-instruct-q4_K_M\n磁盘空间\nC:\\Users\\x\\.ollama\\models 所在盘可用 70.00 GB"
+    },
+    {
+      "name": "③服务在跑：可以下载模型",
+      "pass": true,
+      "detail": "actual=false expected=false"
+    },
+    {
+      "name": "③服务在跑：还不能启用",
+      "pass": true,
+      "detail": "actual=true expected=true"
+    },
+    {
+      "name": "③服务在跑：第4步高亮",
+      "pass": true,
+      "detail": "sec active"
+    },
+    {
+      "name": "④就绪：显示模型已就绪",
+      "pass": true,
+      "detail": "Ollama 程序\n✓ 已安装　C:\\x\\ollama.exe\n后台服务\n✓ 正在运行（端口 11434）\n聊天模型\n✓ 已就绪　qwen2.5:7b-instruct-q4_K_M\n已有模型\nqwen2.5:7b-instruct-q4_K_M（4.70 GB）\n磁盘空间\nC:\\Users\\x\\.ollama\\models 所在盘可用 70.00 GB"
+    },
+    {
+      "name": "④就绪：可启用本地模型",
+      "pass": true,
+      "detail": "actual=false expected=false"
+    },
+    {
+      "name": "④就绪：第5步高亮",
+      "pass": true,
+      "detail": "sec active"
+    },
+    {
+      "name": "④就绪：标签变成已就绪",
+      "pass": true,
+      "detail": "actual=\"已就绪\" expected=\"已就绪\""
+    },
+    {
+      "name": "④就绪：目录回填配置值",
+      "pass": true,
+      "detail": "actual=\"C:\\\\Users\\\\x\\\\.ollama\\\\models\" expected=\"C:\\\\Users\\\\x\\\\.ollama\\\\models\""
+    },
+    {
+      "name": "⑤空间不足：给出行内警告",
+      "pass": true,
+      "detail": "Ollama 程序\n✓ 已安装　\n后台服务\n✓ 正在运行（端口 11434）\n聊天模型\n✗ 还没下载　qwen2.5:7b-instruct-q4_K_M\n磁盘空间\nC:\\Users\\x\\.ollama\\models 所在盘可用 2.00 GB　⚠ 空间不足，需要约 4.7 GB"
+    },
+    {
+      "name": "⑤空间不足：目录提示变警示色",
+      "pass": true,
+      "detail": "hint warn"
+    },
+    {
+      "name": "⑥安装中：显示百分比",
+      "pass": true,
+      "detail": "12.0%　来自 gh-proxy 镜像　180 MB / 1.50 GB"
+    },
+    {
+      "name": "⑥安装中：进度条有宽度",
+      "pass": true,
+      "detail": "12%"
+    },
+    {
+      "name": "⑥安装中：取消按钮可见",
+      "pass": true,
+      "detail": "actual=false expected=false"
+    },
+    {
+      "name": "⑥安装完成：文案正确",
+      "pass": true,
+      "detail": "✓ Ollama 安装完成（用时 1 秒）"
+    },
+    {
+      "name": "⑥安装完成：取消按钮收起",
+      "pass": true,
+      "detail": "actual=true expected=true"
+    },
+    {
+      "name": "⑥安装完成：安装按钮转为禁用",
+      "pass": true,
+      "detail": "actual=true expected=true"
+    },
+    {
+      "name": "⑥安装完成：日志区有内容",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑦下载中：解析出 50.0% 且跨分片拼行正确",
+      "pass": true,
+      "detail": "50.0%　0 KB / 1 KB　1 KB/s　剩 1 秒"
+    },
+    {
+      "name": "⑦下载中：进度条同步",
+      "pass": true,
+      "detail": "50%"
+    },
+    {
+      "name": "⑦下载中：显示速度与剩余时间",
+      "pass": true,
+      "detail": "50.0%　0 KB / 1 KB　1 KB/s　剩 1 秒"
+    },
+    {
+      "name": "⑦下载完成：文案变为已就绪",
+      "pass": true,
+      "detail": "✓ 模型 qwen2.5:7b-instruct-q4_K_M 已就绪"
+    },
+    {
+      "name": "⑦下载完成：启用按钮解锁",
+      "pass": true,
+      "detail": "actual=false expected=false"
+    },
+    {
+      "name": "⑦拉模型前先把模型名/目录落盘",
+      "pass": true,
+      "detail": "[{\"model\":\"qwen2.5:7b-instruct-q4_K_M\",\"modelsDir\":\"C:\\\\Users\\\\x\\\\.ollama\\\\models\"}]"
+    },
+    {
+      "name": "⑦请求体带上 stream:true 与正确的模型名",
+      "pass": true,
+      "detail": "{\"model\":\"qwen2.5:7b-instruct-q4_K_M\",\"stream\":true}"
+    },
+    {
+      "name": "⑧点启用：发出 ollamaUseLocal 且带模型名",
+      "pass": true,
+      "detail": "[{\"model\":\"qwen2.5:7b-instruct-q4_K_M\"}]"
+    },
+    {
+      "name": "⑧点启用：界面给出反馈",
+      "pass": true,
+      "detail": "✓ 已切换为本地模型，回桌宠发一句话试试（第一次要等 30~60 秒）"
+    },
+    {
+      "name": "⑨上游报错：界面显示原因（不静默）",
+      "pass": true,
+      "detail": "✗ 下载失败：假错误：磁盘空间不足"
+    },
+    {
+      "name": "⑩取消：立即中断并给出说明",
+      "pass": true,
+      "detail": "已取消。已下载的部分 Ollama 会自己保留，再点下载会续传。"
+    },
+    {
+      "name": "⑪选择大脑窗：探测失败时出现「一键安装」入口",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑪入口文案指明了是安装 Ollama",
+      "pass": true,
+      "detail": "🔧 一键安装 Ollama →"
+    },
+    {
+      "name": "⑪点入口：主进程收到 pet:openOllamaSetup",
+      "pass": true,
+      "detail": "actual=1 expected=1"
+    },
+    {
+      "name": "⑫入口随状态变化：没模型时提示下载模型",
+      "pass": true,
+      "detail": "{\"txt\":\"⚠ Ollama 在跑，但没找到模型 qwen2.5:7b-instruct-q4_K_M\\n🔧 一键下载模型 →\",\"cls\":\"probe bad\",\"fix\":true}"
+    },
+    {
+      "name": "⑫该场景确实向服务发起了探测",
+      "pass": true,
+      "detail": "tags 累计 4 次"
+    },
+    {
+      "name": "⑫就绪后不再显示补装按钮",
+      "pass": true,
+      "detail": "probeOk=true noFix=true"
+    }
+  ]
+}
