@@ -1,0 +1,169 @@
+[
+  {
+    "engine": "cosyvoice",
+    "python": "D:\\cosyvoice_src\\.venv\\Scripts\\python.exe",
+    "gpuBefore": "7322 MiB, 4772 MiB, 24 %",
+    "coldStartMs": 73687,
+    "health": {
+      "ok": true,
+      "engine": "cosyvoice",
+      "want": "cosyvoice",
+      "engines": [
+        {
+          "name": "cosyvoice",
+          "label": "CosyVoice 3（流式·实时）",
+          "available": true,
+          "voices": []
+        },
+        {
+          "name": "indextts",
+          "label": "IndexTTS-2（离线·情感分离）",
+          "available": true,
+          "voices": [
+            "clone"
+          ],
+          "reference": "D:\\live2d-companion\\tts\\ref\\prompt.wav",
+          "modelDir": "D:\\index-tts\\checkpoints_2",
+          "weightsReady": true,
+          "vocoderReady": true,
+          "boyify": false,
+          "semitones": 0
+        },
+        {
+          "name": "edge",
+          "label": "Edge TTS（在线·微软音色）",
+          "available": true,
+          "voices": [
+            "zh-CN-XiaoxiaoNeural",
+            "zh-CN-XiaoyiNeural",
+            "zh-CN-YunxiaNeural",
+            "zh-CN-YunxiNeural",
+            "zh-CN-YunjianNeural",
+            "zh-CN-YunyangNeural",
+            "zh-CN-liaoning-XiaobeiNeural",
+            "zh-CN-shaanxi-XiaoniNeural",
+            "zh-TW-HsiaoChenNeural",
+            "zh-TW-HsiaoYuNeural",
+            "zh-TW-YunJheNeural",
+            "zh-HK-HiuGaaiNeural",
+            "zh-HK-HiuMaanNeural",
+            "zh-HK-WanLungNeural",
+            "ja-JP-NanamiNeural",
+            "ja-JP-KeitaNeural",
+            "en-US-AnaNeural",
+            "en-US-AriaNeural",
+            "en-US-JennyNeural",
+            "en-US-MichelleNeural",
+            "en-US-AvaNeural",
+            "en-US-EmmaNeural",
+            "en-US-AndrewNeural",
+            "en-US-BrianNeural",
+            "en-US-GuyNeural",
+            "en-US-ChristopherNeural",
+            "en-US-EricNeural",
+            "en-US-RogerNeural",
+            "en-US-SteffanNeural",
+            "en-US-AvaMultilingualNeural",
+            "en-US-EmmaMultilingualNeural",
+            "en-US-AndrewMultilingualNeural",
+            "en-US-BrianMultilingualNeural",
+            "en-GB-SoniaNeural",
+            "en-GB-LibbyNeural",
+            "en-GB-MaisieNeural",
+            "en-GB-RyanNeural",
+            "en-GB-ThomasNeural"
+          ]
+        },
+        {
+          "name": "sapi",
+          "label": "Windows 内置语音",
+          "available": true,
+          "voices": [
+            "Microsoft Huihui Desktop",
+            "Microsoft Zira Desktop",
+            "Microsoft David Desktop"
+          ]
+        },
+        {
+          "name": "tone",
+          "label": "提示音（链路自检）",
+          "available": true,
+          "voices": [
+            "tone"
+          ]
+        }
+      ]
+    },
+    "runs": [
+      {
+        "sentence": "S1",
+        "kind": "短（开场反应）",
+        "chars": 10,
+        "run": 1,
+        "ok": true,
+        "status": 200,
+        "err": "",
+        "ms": 68666,
+        "audioSec": 3.2,
+        "rtf": 21.458,
+        "bytes": 153644
+      },
+      {
+        "sentence": "S2",
+        "kind": "中（一句吐槽）",
+        "chars": 26,
+        "run": 1,
+        "ok": true,
+        "status": 200,
+        "err": "",
+        "ms": 55705,
+        "audioSec": 6.4,
+        "rtf": 8.704,
+        "bytes": 307244
+      },
+      {
+        "sentence": "S3",
+        "kind": "长（三句连说）",
+        "chars": 67,
+        "run": 1,
+        "ok": true,
+        "status": 200,
+        "err": "",
+        "ms": 99806,
+        "audioSec": 12.8,
+        "rtf": 7.797,
+        "bytes": 614444
+      }
+    ],
+    "errors": [],
+    "portReadyMs": 5000,
+    "available": true,
+    "gpuAfter": "10278 MiB, 1816 MiB, 25 %",
+    "sidecarRtf": [
+      {
+        "sec": 3.2,
+        "rtf": 5.138263329863548
+      },
+      {
+        "sec": 1.8,
+        "rtf": 6.748232841491699
+      },
+      {
+        "sec": 6.4,
+        "rtf": 3.857285790145397
+      },
+      {
+        "sec": 6,
+        "rtf": 4.04967200756073
+      },
+      {
+        "sec": 12.8,
+        "rtf": 3.4433491341769695
+      },
+      {
+        "sec": 14.26,
+        "rtf": 3.0611530427009828
+      }
+    ]
+  }
+]

@@ -26,6 +26,8 @@
   window.__l2d = l2d;
 
   function setStatus(t) { if (statusEl) statusEl.textContent = t; }
+  // 秒级时长格式化（思考 / 合成计时用）
+  function fmtSec(ms) { return (Math.max(0, ms) / 1000).toFixed(1) + 's'; }
 
   // 发送框自适应高度：默认一行；随内容增长，超过约第 6 行后内部滚动。
   function autoGrow() {
@@ -601,10 +603,14 @@
     return ttsCtx;
   }
 
-  function ttsSpeak(text, emo, src) {
-    if (!text) return;
+  function ttsSpeak(text, emo, src, opts) {
+    if (!text) return false;
+    // onStart：音频真正开始播放（ttsSrc.start）时回调——用于"先不冒泡、等语音就绪再一起放出来"
+    const onStart = (opts && typeof opts.onStart === 'function') ? opts.onStart : null;
+    const onEnd = (opts && typeof opts.onEnd === 'function') ? opts.onEnd : null;     // 播放结束（收尾说话态）
+    const onFail = (opts && typeof opts.onFail === 'function') ? opts.onFail : null;   // 合成/解码失败
     const ctx = ttsEnsureCtx();
-    if (!ctx) return;
+    if (!ctx) return false;
     // 立刻进入"音频嘴"状态：合成/网络期间响度=0 → 嘴闭合等待，
     // 避免文本驱动抢先跑完（那就是"嘴比 TTS 快"的观感）。
     window.__ttsPlaying = true;
@@ -632,18 +638,23 @@
         ttsSrc = null;
         window.__ttsRms = 0;
         window.__ttsPlaying = false;
-        window.__ttsProgress = 1;
-        // 音频播完 → 气泡再停留 2 秒才消失
-        holdBubble(2000);
-        // 并由 loader 结束当前台词（闭口、排下一条）
-        if (window.__l2d && typeof window.__l2d.onAudioEnded === 'function') window.__l2d.onAudioEnded();
+      window.__ttsProgress = 1;
+      // 音频播完 → 气泡再停留 2 秒才消失
+      holdBubble(2000);
+      // 并由 loader 结束当前台词（闭口、排下一条）
+      if (window.__l2d && typeof window.__l2d.onAudioEnded === 'function') window.__l2d.onAudioEnded();
+      if (onEnd) { try { onEnd(); } catch (e) { /* 忽略回调异常 */ } }
       };
       ttsSrc.start();
+      if (onStart) { try { onStart(); } catch (e) { /* 忽略回调异常 */ } }
       ttsRmsLoop();
     }).catch((e) => {
       window.__ttsPlaying = false;   // 合成/解码失败：交回文本驱动口型
       if (window.desktopPet && window.desktopPet.log) window.desktopPet.log('[tts] ' + e.message);
+      if (onFail) { try { onFail(e); } catch (e2) { /* 忽略回调异常 */ } }
+      else if (onStart) { try { onStart(); } catch (e2) { /* 无 onFail：至少把文字放出来 */ } }
     });
+    return true;   // 合成/播放已发起（失败走 onFail / onStart 回调收尾）
   }
 
   // 计算播放中的 RMS 与播放进度（下一步驱动口型）
@@ -837,6 +848,25 @@
     addMsg('user', text);
     const bubble = addMsg('assistant', '…');
 
+    // 思考/合成计时：状态栏实时显示已用时长（用户想知道"它想了多久"）。
+    // phaseTick 只负责刷新状态栏；各阶段收尾（reveal / onError / catch）会 stopTick。
+    let tThink0 = performance.now();
+    let phaseTick = null;
+    const stopTick = () => { if (phaseTick) { clearInterval(phaseTick); phaseTick = null; } };
+    const tickThinking = () => {
+      stopTick();
+      const lbl = brainLabel(brainKind);
+      const upd = () => setStatus('思考中… ' + fmtSec(performance.now() - tThink0) + ' · ' + lbl);
+      phaseTick = setInterval(upd, 200); upd();
+    };
+    const tickSynth = (prefix, thinkMs) => {
+      stopTick();
+      const tS = performance.now();
+      const tail = (thinkMs > 0) ? ('（思考 ' + fmtSec(thinkMs) + '）') : '';
+      const upd = () => setStatus(prefix + ' ' + fmtSec(performance.now() - tS) + tail + ' · ' + brainLabel(brainKind));
+      phaseTick = setInterval(upd, 200); upd();
+    };
+
     // 时钟快通道：问时间/日期时直接查系统时钟。
     // 本地小模型没有实时感知，让它回答"几点了"基本等于让它编一个 —— 既错又慢，
     // 而这类问题的答案是确定的，没必经过模型。
@@ -844,14 +874,38 @@
       const cr = window.ChatBackends.clockReply(text, persona);
       if (cr) {
         const parsed = window.ChatBackends.parseEmotion(cr);
-        if (l2d.setChatEmotion) l2d.setChatEmotion(parsed.emo);
         setBubbleText(bubble, parsed.text);
-        l2d.setSpeaking(true);
-        l2d.feedChatText(parsed.text);
+        if (l2d.setChatEmotion) l2d.setChatEmotion(parsed.emo);
         setStatus('本机时钟 · ' + brainLabel(brainKind) + '（未调用模型）');
+        if (ttsOn && parsed.text) {
+          l2d.setSpeaking(true);   // 占位说话态（无文本时不空转嘴唇，见 _driveChatMouth）
+          tickSynth('本机时钟 · 生成语音中…', 0);   // 状态栏实时显示合成耗时
+          const clockReady = () => {
+            stopTick();
+            setStatus('本机时钟 · ' + brainLabel(brainKind) + '（未调用模型）');
+            if (typeof l2d.startAudioChat === 'function') l2d.startAudioChat(parsed.text, parsed.emo);
+            else l2d.feedChatText(parsed.text);
+          };
+          const clockFallback = () => {
+            stopTick();
+            if (typeof l2d.speakTextChat === 'function') l2d.speakTextChat(parsed.text, parsed.emo);
+            else l2d.feedChatText(parsed.text);
+            setTimeout(() => { try { l2d.setSpeaking(false); } catch (e) {} },
+              Math.min(6000, 800 + parsed.text.length * 120));
+          };
+          const started = ttsSpeak(parsed.text, [parsed.emo], null, {
+            onStart: clockReady,
+            onEnd: () => { stopTick(); try { l2d.setSpeaking(false); } catch (e) {} },
+            onFail: clockFallback
+          });
+          if (!started) clockFallback();
+          return;
+        }
+        l2d.setSpeaking(true);
+        if (typeof l2d.speakTextChat === 'function') l2d.speakTextChat(parsed.text, parsed.emo);
+        else l2d.feedChatText(parsed.text);
         try {
-          if (ttsOn) ttsSpeak(parsed.text, [parsed.emo], null);
-          else await new Promise((r) => setTimeout(r, Math.min(2600, 500 + parsed.text.length * 90)));
+          await new Promise((r) => setTimeout(r, Math.min(2600, 500 + parsed.text.length * 90)));
         } finally {
           l2d.setSpeaking(false);
         }
@@ -860,6 +914,9 @@
     }
 
     l2d.setSpeaking(true);
+    // 延迟收尾：语音开启时说话态要延续到音频播完；关闭语音时用估时兜底。
+    // 一旦交给 onDone 接管，finally 就不再抢先 setSpeaking(false)（否则嘴在音频开始前就被掐掉）。
+    let deferSpeakingEnd = false;
     try {
       if (!brain || !connected) {
         const ok = await applyBrain(brainKind, false);
@@ -869,7 +926,8 @@
       // 进入「思考中」状态：气泡显示提示、状态栏提示，并标记 generating 以露出停止按钮
       bubble.classList.add('thinking', 'generating');
       setBubbleText(bubble, '思考中…');
-      setStatus('思考中… · ' + brainLabel(brainKind));
+      tThink0 = performance.now();
+      tickThinking();   // 状态栏：思考中… X.Xs · 本地模型
       // 情绪标签清洗器（见 chat-backends.js）：标签可能跨片段到达、可能前面多一个空格、
       // 也可能夹在句子中间，这里统一处理，保证气泡里只出现正文。
       let stripper = window.ChatBackends.createTagStripper();
@@ -878,14 +936,13 @@
           const r = stripper.push(piece);
           if (!r) return;
           acc += r;
-          bubble.classList.remove('thinking');   // 首个字到了，思考提示撤下
-          setBubbleText(bubble, acc);
-          l2d.feedChatText(acc);   // 实时喂给口型引擎，聊天回复也做元音对照
-          messagesEl.scrollTop = messagesEl.scrollHeight;
+          // 不在流式阶段冒泡：保持"思考中…"直到语音生成好再一起放出来
+          // （见 onDone 的延迟放音逻辑）。这里只累加清洗后的正文。
         },
         // WorkBuddy 大脑专属：上游会先把整段会话历史回放一遍，回放段不渲染
         onReplay: (active) => {
           if (active) {
+            stopTick();
             acc = '';
             bubble.classList.add('syncing');
             bubble.classList.remove('thinking');
@@ -896,7 +953,8 @@
             bubble.classList.remove('syncing');
             bubble.classList.add('thinking');
             setBubbleText(bubble, '思考中…');
-            setStatus('已接收本轮回复，生成中…');
+            tThink0 = performance.now();   // 历史回放不算思考，重新起算
+            tickThinking();
             stripper = window.ChatBackends.createTagStripper();   // 回放段不算本轮，清洗器重置
           }
           messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -920,25 +978,62 @@
           const stopped = !!(meta && meta.stopped);
           if (!shown) shown = stopped ? '（已停止）' : '(无文本回复)';
           else if (stopped) shown += '（已停止）';
-          setBubbleText(bubble, shown);
-          if (l2d.setChatEmotion) l2d.setChatEmotion(emo);
-          // TTS：复用台词那条链路，聊出来的话也能念出来（语音关着就只显示文字）
-          if (ttsOn && shown) ttsSpeak(shown, [emo], null);
-          setStatus(brainLabel(brainKind) + (stopped ? ' · 已停止' : ' · ' + (tagged ? '情绪[' + emo + ']' : '已回复')));
+          // 本轮"思考"到此结束（LLM 已出稿）：冻结思考耗时，供合成阶段与最终状态显示
+          const thinkMs = performance.now() - tThink0;
+          // 延迟放音：文本先不冒泡、表情也不切，保持"思考中…"直到语音开始播放，
+          // 再由 onStart 把文字 + 表情 + 口型参照一起放出来（与音频同步出现）。
+          const reveal = () => {
+            stopTick();
+            setBubbleText(bubble, shown);
+            if (l2d.setChatEmotion) l2d.setChatEmotion(emo);
+            if (ttsOn && shown) {
+              // 语音就绪：交给「音频驱动口型」（RMS 开合 + 播放进度推元音）
+              if (typeof l2d.startAudioChat === 'function') l2d.startAudioChat(shown, emo);
+              else l2d.feedChatText(shown);
+            } else if (shown) {
+              // 未开语音：用文本驱动口型（逐字开合），播完自动闭口
+              if (typeof l2d.speakTextChat === 'function') l2d.speakTextChat(shown, emo);
+              else l2d.feedChatText(shown);
+            }
+            setStatus(brainLabel(brainKind) + (stopped ? ' · 已停止' : ' · ' + (tagged ? '情绪[' + emo + ']' : '已回复'))
+              + ' · 思考 ' + fmtSec(thinkMs));
+          };
+          // 说话态估时（仅「未开语音」的文本口型需要），120ms/字与 _driveChatMouth 对齐
+          const speakEndMs = Math.min(6000, 800 + shown.length * 120);
+          const endSpeaking = () => { deferSpeakingEnd = false; stopTick(); try { l2d.setSpeaking(false); } catch (e) {} };
+          if (ttsOn && shown) {
+            deferSpeakingEnd = true;
+            // 模型已出稿，进入语音合成阶段：状态栏实时显示合成耗时（并保留思考耗时）
+            tickSynth('生成语音中…', thinkMs);
+            const started = ttsSpeak(shown, [emo], null, {
+              onStart: reveal,
+              onEnd: endSpeaking,
+              onFail: () => { reveal(); setTimeout(endSpeaking, speakEndMs); }   // 合成失败：仍放文字 + 文本口型
+            });
+            // 无音频上下文（ttsSpeak 未发起）：回退到文本口型，别让说话态卡住
+            if (!started) { reveal(); setTimeout(endSpeaking, speakEndMs); }
+          } else {
+            deferSpeakingEnd = true;
+            reveal();   // 语音关着：没音频可等，直接显示文字
+            setTimeout(endSpeaking, speakEndMs);
+          }
         },
         onError: (e) => {
+          stopTick();
           bubble.classList.remove('thinking', 'generating');
           setBubbleText(bubble, '[错误] ' + ((e && e.message) || e));
           setStatus(brainLabel(brainKind) + ' 出错 · ' + ((e && e.message) || e));
         }
       });
     } catch (e) {
+      stopTick();
       const msg = (e && e.message) ? e.message : String(e);
       bubble.classList.remove('thinking', 'generating');
       setBubbleText(bubble, '无法送达：' + msg);
       setStatus('链路未就绪 · ' + msg);
     } finally {
-      l2d.setSpeaking(false);
+      // 已交给音频/文本口型收尾时不抢先掐嘴；此时计时刷新也由 reveal/onEnd 收尾
+      if (!deferSpeakingEnd) { l2d.setSpeaking(false); stopTick(); }
     }
   }
 

@@ -18,12 +18,16 @@ TTS 引擎层 —— 桌宠语音侧车
 import io
 import math
 import os
+import re
 import shutil
+import socket
 import struct
 import subprocess
 import sys
 import tempfile
+import urllib.parse
 import wave
+import http.client as http_client
 
 # 情绪名 -> 供引擎使用的语气描述（未来 CosyVoice/IndexTTS 直接消费；SAPI 忽略）
 EMO_HINT = {
@@ -40,6 +44,21 @@ EMO_HINT = {
     "pout": "有点赌气地",
     "smug": "得意地",
 }
+
+# 假名（平假名 + 片假名 + 片假名扩展）——判断"这句话是日文"的唯一可靠信号。
+# 注意**不能看汉字**：中文里也全是汉字，只有假名是日文独有的。
+_KANA_RE = re.compile(u'[\u3040-\u309f\u30a0-\u30ff\u31f0-\u31ff]')
+
+
+def _has_japanese(text):
+    """文本里有没有假名（有就当日语处理，CosyVoice 的 cross-lingual 分支按此选语言）。
+
+    ⚠ 这个函数曾经**只有调用没有定义**（`CosyVoiceEngine.synth` 里 `lang = "jp" if _has_japanese(text) ...`），
+    于是只要把引擎设成 cosyvoice，每次合成都抛 `NameError: name '_has_japanese' is not defined`，
+    而前端 catch 掉之后只写一行日志、退化回文本驱动口型 —— 表面上"没声音"，很难联想到是这里。
+    0.2.2 的安装包里带的就是这个状态，补上定义即可。改动时请保证调用与定义始终成对存在。
+    """
+    return bool(_KANA_RE.search(text or ''))
 
 
 class TTSEngine(object):
@@ -217,19 +236,26 @@ class CosyVoiceEngine(_DirEngine):
         super().__init__()
         self._cosy = None
         self._sr = 24000
+        self._gen = None        # cosy_gen.generate_best（惰性导入后挂在这里）
 
     def _ensure(self):
         if self._cosy is None:
             # 惰性导入：避免在 indextts 等其它引擎的 venv 里因缺 torch 而崩溃。
+            # ⚠ 必须把 generate_best 挂到 self 上再返回。之前它是这个函数的**局部名**，
+            # 出了 _ensure() 就没了，synth() 里那句 generate_best(...) 直接
+            # NameError: name 'generate_best' is not defined —— 和 _has_japanese 同一族的坑：
+            # 名字只在局部作用域里存在，调用点却在别处。前端 catch 后只写一行日志，
+            # 表现为"引擎显示可用、但一句话都合成不出来"。
             from cosy_gen import load_cosy, generate_best, SR
             self._cosy = load_cosy()
             self._sr = SR
+            self._gen = generate_best
         return self._cosy
 
     def synth(self, text, voice=None, emo=None):
         cosy = self._ensure()
         lang = "jp" if _has_japanese(text) else "cn"
-        w, _info = generate_best(
+        w, _info = self._gen(
             cosy, text,
             max_candidates=2,                 # 实时聊天：速度优先，2 候选足够
             speed_primary=(1.0, 1.06),
@@ -611,15 +637,73 @@ class EdgeTTSEngine(TTSEngine):
                 pass
 
 
+class GptSovitsEngine(TTSEngine):
+    """GPT-SoVITS v2Pro 离线克隆音色（常驻"子侧车"在 18767，本类只做 HTTP 代理）。
+
+    为什么要单独一个进程：GPT-SoVITS 需要 torch cu126 环境（tts/venv-gptsovits），
+    与 cosyvoice/indextts 各自独立的 Python 解释器冲突，所以由 main.js 单独拉起
+    gptsovits_server.py（见 main.js 的 gptsovitsSpawn），本引擎只通过 http.client
+    把 /tts 请求转过去、把返回的 WAV 字节原样交给侧车。这样各引擎互不污染解释器。
+
+    可用判定：参考音频存在 + 子侧车 18767 端口可连（TCP 探活，不阻塞）。
+    子侧车模型懒加载，所以探活只确认"进程在线"，不确认"权重已就绪"——
+    权重在首个 /tts 请求时才搬进显存（约 13s），之后常驻。
+    """
+    name = "gptsovits"
+    label = "GPT-SoVITS v2Pro（离线·克隆你的音色）"
+    _HOST = "127.0.0.1"
+    _PORT = int(os.environ.get("GPTSOVITS_PORT", "18767"))
+
+    def _ref_default(self):
+        here = os.path.dirname(os.path.abspath(__file__))
+        return os.environ.get("GPTSOVITS_REF") or os.path.join(here, "ref", "prompt_9s.wav")
+
+    def available(self):
+        ref = self._ref_default()
+        if not os.path.isfile(ref):
+            return False
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(0.4)
+        try:
+            s.connect((self._HOST, self._PORT))
+            return True
+        except Exception:
+            return False
+        finally:
+            try:
+                s.close()
+            except Exception:
+                pass
+
+    def voices(self):
+        return ["clone"]
+
+    def synth(self, text, voice=None, emo=None):
+        q = urllib.parse.urlencode({"text": text})
+        conn = http_client.HTTPConnection(self._HOST, self._PORT, timeout=180)
+        try:
+            conn.request("GET", "/tts?" + q)
+            r = conn.getresponse()
+            if r.status != 200:
+                body = r.read().decode("utf-8", "ignore")
+                raise RuntimeError("GPT-SoVITS 侧车返回 %d: %s" % (r.status, body[:200]))
+            data = r.read()
+        finally:
+            conn.close()
+        if not data:
+            raise RuntimeError("GPT-SoVITS 未产出音频")
+        return data, 0
+
+
 # 优先级：越靠前越优先（auto 时取第一个 available）
-# edge 排在 indextts 之后：能用克隆音色就优先克隆；克隆不可用时，
-# 在线的 Edge 音色质量远高于 Windows 内置语音，所以排在 sapi 之前。
-_PRIORITY = ["cosyvoice", "indextts", "edge", "sapi", "tone"]
+# gptsovits 紧随 cosyvoice：cosyvoice 配置缺失（ref 为空等）不可用时，自动回落到
+# GPT-SoVITS 克隆音色；二者都不可用时再退到在线 Edge / 内置语音 / 提示音。
+_PRIORITY = ["cosyvoice", "gptsovits", "indextts", "edge", "sapi", "tone"]
 
 
 def build_engines():
     reg = {}
-    for e in (CosyVoiceEngine(), IndexTTSEngine(), EdgeTTSEngine(),
+    for e in (CosyVoiceEngine(), GptSovitsEngine(), IndexTTSEngine(), EdgeTTSEngine(),
               SapiEngine(), ToneEngine()):
         reg[e.name] = e
     return reg

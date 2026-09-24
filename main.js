@@ -271,12 +271,15 @@ const PORT = CONFIG.serverPort || 18765;
 // 前端经同源路由 /api/tts 访问（页面来自 18765，直连 18766 属跨域，故由主进程代理）。
 // 侧车不可用时整条语音链路静默降级（/api/tts 返回 503），不影响桌宠其余功能。
 const TTS_PORT = CONFIG.ttsPort || 18766;
+// GPT-SoVITS 子侧车端口：故意避开 TTS(18766) 与 audio(serverPort+3=18768)，取 serverPort+2=18767。
+const GPTSOVITS_PORT = (CONFIG.serverPort || 18765) + 2;
 const TTS_ENGINE_IDS = [
   { id: 'auto', label: '自动（克隆优先 → 在线音色 → 内置）' },
   { id: 'cosyvoice', label: 'CosyVoice 3（流式·实时）' },
   { id: 'indextts', label: 'IndexTTS-2（离线·克隆你的音色）' },
   { id: 'edge', label: 'Edge TTS（在线·微软专业音色）' },
   { id: 'sapi', label: 'Windows 内置语音（占位）' },
+  { id: 'gptsovits', label: 'GPT-SoVITS v2Pro（离线·克隆你的音色）' },
   { id: 'tone', label: '提示音（仅链路自检）' }
 ];
 const ttsState = {
@@ -287,6 +290,7 @@ const ttsState = {
   ok: false
 };
 let ttsChild = null;
+let gptsovitsChild = null;   // GPT-SoVITS 子侧车（tts/venv-gptsovits 进程，端口见 GPTSOVITS_PORT）
 
 function ttsSpawn() {
   if (!ttsState.enabled) { log('tts: disabled by config'); return; }
@@ -331,6 +335,8 @@ function ttsSpawn() {
     if (CONFIG.cosyvoiceFp16 !== undefined && CONFIG.cosyvoiceFp16 !== null) {
       ttsEnv.COSYVOICE_FP16 = CONFIG.cosyvoiceFp16 ? '1' : '0';
     }
+    // GPT-SoVITS 子侧车端口：主 tts_server 里的 GptSovitsEngine 据此做 HTTP 代理。
+    ttsEnv.GPTSOVITS_PORT = String(GPTSOVITS_PORT);
     let child;
     try {
       child = spawn(exe, [script, '--port', String(TTS_PORT), '--engine', ttsState.want],
@@ -361,6 +367,48 @@ function ttsKill() {
 }
 
 function ttsRestart() { ttsKill(); setTimeout(ttsSpawn, 300); }
+
+// ---------------------------------------------------------------------------
+// GPT-SoVITS 子侧车（方案①的语音引擎）：独立常驻进程，必须用 tts/venv-gptsovits
+// （torch cu126），不能与主 tts_server 共用解释器。本进程只做模型推理，零网络零 token。
+// 通过 127.0.0.1:GPTSOVITS_PORT 提供 /tts，主 tts_server 里的 GptSovitsEngine 做 HTTP 代理。
+// 模型懒加载：进程启动很快，真正搬权重进显存发生在首个 /tts 请求（约 13s），之后常驻。
+// ---------------------------------------------------------------------------
+function gptsovitsSpawn() {
+  if (gptsovitsChild) return;
+  // 仅当用户打算用 GPT-SoVITS（显式选它，或 auto 想自动回落到它）且参考音频在时才拉起，
+  // 避免无谓占用显存。
+  const want = ttsState.want || 'auto';
+  if (want !== 'gptsovits' && want !== 'auto') return;
+  const ref = CONFIG.gptsovitsRef || path.join(__dirname, 'tts', 'ref', 'prompt_9s.wav');
+  if (!fs.existsSync(ref)) { log('gptsovits: ref missing, skip: ' + ref); return; }
+  const script = path.join(__dirname, 'tts', 'gptsovits_server.py');
+  if (!fs.existsSync(script)) { log('gptsovits: server script missing: ' + script); return; }
+  const winPy = CONFIG.gptsovitsPython ||
+    path.join(__dirname, 'tts', 'venv-gptsovits', 'Scripts', 'python.exe');
+  if (!fs.existsSync(winPy)) { log('gptsovits: python missing: ' + winPy); return; }
+  const { spawn } = require('child_process');
+  const env = Object.assign({}, process.env);
+  env.GPTSOVITS_REF = ref;
+  if (CONFIG.gptsovitsRefTxt) env.GPTSOVITS_REF_TXT = CONFIG.gptsovitsRefTxt;
+  env.GPTSOVITS_PORT = String(GPTSOVITS_PORT);
+  // 语速（1.0≈原速，偏慢；默认 1.2）。改这里需重启桌宠让侧车以新值启动。
+  if (CONFIG.gptsovitsSpeed) env.GPTSOVITS_SPEED = String(CONFIG.gptsovitsSpeed);
+  const child = spawn(winPy, [script, '--port', String(GPTSOVITS_PORT)],
+    { cwd: path.join(__dirname, 'tts'), windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'], env });
+  child.on('error', (e) => { log('gptsovits: spawn error: ' + e.message); gptsovitsChild = null; });
+  child.on('exit', (c) => { log('gptsovits: sidecar exited code=' + c); gptsovitsChild = null; });
+  if (child.stdout) child.stdout.on('data', (d) => log('gptsovits ' + String(d).trim()));
+  if (child.stderr) child.stderr.on('data', (d) => log('gptsovits ' + String(d).trim()));
+  gptsovitsChild = child;
+  log('gptsovits: sidecar spawned (' + winPy + ') port=' + GPTSOVITS_PORT);
+}
+function gptsovitsKill() {
+  if (!gptsovitsChild) return;
+  try { gptsovitsChild.kill(); } catch (e) {}
+  gptsovitsChild = null;
+}
 
 // ---------------------------------------------------------------------------
 // 音频侧车（方案③）：原生 WASAPI 逐端点回环采集。
@@ -938,6 +986,302 @@ async function ollamaWizardInstall() {
     return { ok: false, cancelled: cancelled, message: msg };
   } finally {
     if (ollamaSetupJob === job) { ollamaSetupJob.phase = 'done'; }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 语音引擎安装向导（"一键装 GPT-SoVITS 引擎"的后端）
+// ---------------------------------------------------------------------------
+// 结构与上面的本地模型向导一致。**唯一的大差别是载荷体积**：通用引擎（源码 +
+// 通用预训练权重 + Python 环境）约 11.8 GB，而 NSIS 安装包有 2 GB 硬上限装不下
+// ——所以走"安装包只带声库（<1 MB，你的音色），引擎首启现装"。
+//   检测与装配交给 tts/ 下两个只依赖标准库的 Python 脚本（detect_engine.py /
+//   provision_engine.py），主进程只做三件事：找一个解释器、起进程、逐行转发进度。
+// ---------------------------------------------------------------------------
+let ttsSetupJob = null;     // 进行中的装配任务：{ cancelled, child, phase, abort }
+let ttsSetupWin = null;     // 向导窗口
+
+function ttsSetupDir() { return path.join(require('os').tmpdir(), 'tts-engine-setup'); }
+
+function ttsEmit(obj) {
+  try {
+    if (ttsSetupWin && !ttsSetupWin.isDestroyed()) ttsSetupWin.webContents.send('pet:ttsSetupProgress', obj);
+  } catch (e) {}
+}
+function ttsEmitLog(msg) { log('[tts-wizard] ' + msg); ttsEmit({ phase: 'log', message: String(msg) }); }
+
+// 能跑我们脚本的解释器（脚本只用标准库，Python 3.6+ 都行）
+function wizardPythonCandidates() {
+  const la = process.env.LOCALAPPDATA || '';
+  const pf = process.env.ProgramFiles || 'C:\\Program Files';
+  const out = [];
+  ['Python313', 'Python312', 'Python311', 'Python310', 'Python39'].forEach((v) => {
+    if (la) out.push(path.join(la, 'Programs', 'Python', v, 'python.exe'));
+    out.push(path.join(pf, v, 'python.exe'));
+  });
+  out.push(path.join(__dirname, 'tts', 'venv-gptsovits', 'Scripts', 'python.exe'));  // 兜底：已装好的引擎环境
+  return out;
+}
+function wizardPython() {
+  for (const p of wizardPythonCandidates()) {
+    try { if (fs.existsSync(p)) return p; } catch (e) {}
+  }
+  return '';
+}
+function findPy311() {
+  const la = process.env.LOCALAPPDATA || '';
+  const cands = [
+    la && path.join(la, 'Programs', 'Python', 'Python311', 'python.exe'),
+    'C:\\Python311\\python.exe',
+    path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Python311', 'python.exe')
+  ];
+  for (const p of cands) { try { if (p && fs.existsSync(p)) return p; } catch (e) {} }
+  return '';
+}
+
+// 带进度下载（.part → 成功才改名，避免半截包被当成下完）
+function ttsDownload(url, dest, job, what) {
+  return new Promise((resolve, reject) => {
+    const part = dest + '.part';
+    try { if (fs.existsSync(part)) fs.unlinkSync(part); } catch (e) {}
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    const out = fs.createWriteStream(part);
+    let got = 0, total = 0, last = 0, done = false;
+    const fail = (m) => { if (done) return; done = true; try { out.destroy(); } catch (e) {} reject(new Error(m)); };
+    const req = followGet(url, { headers: { 'User-Agent': 'HotaruPet-EngineWizard' }, timeout: 60000 }, (res) => {
+      if (res.statusCode !== 200 && res.statusCode !== 206) { res.resume(); return fail('HTTP ' + res.statusCode); }
+      const cl = Number(res.headers['content-length'] || 0);
+      if (cl > 0) total = cl;
+      res.on('data', (c) => {
+        got += c.length;
+        const now = Date.now();
+        if (now - last > 400) {
+          last = now;
+          ttsEmit({
+            phase: 'bootstrap-python', step: 'bootstrap-python',
+            percent: total ? Math.min(100, (got / total) * 100) : 0,
+            message: '正在下载 ' + what + '…', bytes: got, total: total
+          });
+        }
+      });
+      res.on('error', (e) => fail(e.message || '下载中断'));
+      res.pipe(out);
+      out.on('error', (e) => fail(e.message || '写入失败'));
+      out.on('finish', () => {
+        if (done) return; done = true;
+        try { if (fs.existsSync(dest)) fs.unlinkSync(dest); fs.renameSync(part, dest); resolve(got); }
+        catch (e) { reject(new Error('落盘失败：' + e.message)); }
+      });
+    }, (e) => fail((e && e.message) || '连接失败'));
+    if (job) job.abort = () => { try { req.destroy(); } catch (e) {} fail('已取消'); };
+  });
+}
+
+// 本机一个 Python 都没有时：先静默装一个官方 3.11（免管理员），再拿它跑我们的脚本。
+// ——这是"鸡生蛋"问题的解法：脚本自己也需要一个解释器才能被执行。
+async function ensureBootstrapPython(job) {
+  let py = wizardPython();
+  if (py) return py;
+  ttsEmitLog('本机没有找到 Python，先自动装一个运行时');
+  const version = '3.11.9';
+  const dest = path.join(ttsSetupDir(), 'python-' + version + '-amd64.exe');
+  const urls = [
+    'https://mirror.nju.edu.cn/python/python-' + version + '-amd64.exe',
+    'https://mirrors.aliyun.com/python-release/windows/python-' + version + '-amd64.exe',
+    'https://www.python.org/ftp/python/' + version + '/python-' + version + '-amd64.exe'
+  ];
+  let ok = false, lastErr = '';
+  for (const u of urls) {
+    try { await ttsDownload(u, dest, job, 'Python 运行时（约 25 MB）'); ok = true; break; }
+    catch (e) { lastErr = (e && e.message) || String(e); ttsEmitLog('该源失败：' + lastErr + '，换下一个'); }
+  }
+  if (!ok) throw new Error('Python 运行时下载失败：' + lastErr);
+  ttsEmit({ phase: 'python', step: 'python', percent: 0, message: '正在静默安装 Python（免管理员、不弹 UAC）…' });
+  await new Promise((resolve, reject) => {
+    const { spawn } = require('child_process');
+    const c = spawn(dest, ['/quiet', 'InstallAllUsers=0', 'Include_launcher=0', 'Include_test=0',
+                           'PrependPath=0', 'SimpleInstall=1'], { windowsHide: true, stdio: 'ignore' });
+    if (job) job.child = c;
+    c.on('error', (e) => reject(new Error('Python 安装程序启动失败：' + (e && e.message))));
+    c.on('exit', (code) => (code === 0 ? resolve() : reject(new Error('Python 安装失败 code=' + code))));
+  });
+  for (let i = 0; i < 40 && !py; i++) { py = findPy311(); if (!py) await new Promise((r) => setTimeout(r, 800)); }
+  if (!py) throw new Error('Python 安装后仍找不到解释器，请手动安装 Python 3.11 后重试');
+  ttsEmitLog('Python 就绪：' + py);
+  return py;
+}
+
+// 检测：跑 detect_engine.py（只读，不改磁盘）+ 补上侧车运行态
+function ttsDetect() {
+  const root = path.join(__dirname, 'tts');
+  const busy = !!(ttsSetupJob && ttsSetupJob.phase && ttsSetupJob.phase !== 'done');
+  const py = wizardPython();
+  if (!py) {
+    return Promise.resolve({
+      ok: true,
+      status: { root: root, ready: false, noPython: true, checks: [], missing: ['python'],
+                busy: busy, sidecarRunning: !!gptsovitsChild }
+    });
+  }
+  const script = path.join(root, 'detect_engine.py');
+  if (!fs.existsSync(script)) return Promise.resolve({ ok: false, message: '缺少检测脚本：' + script });
+  return new Promise((resolve) => {
+    const { spawn } = require('child_process');
+    let buf = '', err = '';
+    const c = spawn(py, [script, '--root', root], { windowsHide: true });
+    c.stdout.on('data', (d) => { buf += d; });
+    c.stderr.on('data', (d) => { err += d; });
+    c.on('error', (e) => resolve({ ok: false, message: '检测脚本启动失败：' + (e && e.message) }));
+    c.on('exit', () => {
+      const last = String(buf).trim().split('\n').pop();
+      try {
+        const st = JSON.parse(last);
+        st.busy = busy;
+        st.sidecarRunning = !!gptsovitsChild;
+        resolve({ ok: true, status: st });
+      } catch (e) {
+        resolve({ ok: false, message: '检测结果解析失败：' + String(err || buf).slice(0, 200) });
+      }
+    });
+  });
+}
+
+// 一键装配（约 11.8 GB 下载）。进度全程经 pet:ttsSetupProgress 推送。
+async function ttsWizardInstall() {
+  if (ttsSetupJob && ttsSetupJob.phase && ttsSetupJob.phase !== 'done') {
+    return { ok: false, message: '已有一个装配任务在进行中' };
+  }
+  const job = { cancelled: false, child: null, phase: 'python', abort: null };
+  ttsSetupJob = job;
+  const t0 = Date.now();
+  const root = path.join(__dirname, 'tts');
+  try {
+    ttsEmit({ phase: 'python', step: 'python', percent: 0, message: '正在准备 Python 环境…' });
+    const py = await ensureBootstrapPython(job);
+    if (job.cancelled) throw new Error('已取消');
+
+    const script = path.join(root, 'provision_engine.py');
+    if (!fs.existsSync(script)) throw new Error('缺少装配脚本：' + script);
+    ttsEmitLog('使用解释器：' + py);
+
+    const code = await new Promise((resolve, reject) => {
+      const { spawn } = require('child_process');
+      const c = spawn(py, [script, '--root', root, '--python-mode', 'auto'],
+                      { windowsHide: true, cwd: root });
+      job.child = c;
+      job.abort = () => { try { c.kill(); } catch (e) {} };
+      let rest = '';
+      c.stdout.on('data', (d) => {
+        rest += String(d);
+        let i;
+        while ((i = rest.indexOf('\n')) >= 0) {
+          const line = rest.slice(0, i).trim();
+          rest = rest.slice(i + 1);
+          if (!line) continue;
+          try {
+            const o = JSON.parse(line);
+            if (o.step) job.phase = o.step;
+            ttsEmit(Object.assign({ phase: o.step || 'log' }, o));
+          } catch (e) { ttsEmitLog(line); }
+        }
+      });
+      c.stderr.on('data', (d) => { const s = String(d).trim(); if (s) ttsEmitLog(s); });
+      c.on('error', (e) => reject(new Error('装配进程启动失败：' + (e && e.message))));
+      c.on('exit', (cd) => resolve(cd));
+    });
+    if (job.cancelled) throw new Error('已取消');
+    if (code !== 0) throw new Error('装配失败（退出码 ' + code + '），详见日志');
+
+    // 收尾：切到本引擎并重启侧车，让它用新装好的环境跑起来
+    CONFIG.ttsEnabled = true;
+    CONFIG.ttsEngine = 'gptsovits';
+    ttsState.want = 'gptsovits';
+    try { saveConfig(); } catch (e) {}
+    try { ttsKill(); } catch (e) {}
+    try { gptsovitsKill(); } catch (e) {}
+    try { ttsSpawn(); } catch (e) {}
+    try { gptsovitsSpawn(); } catch (e) {}
+
+    job.phase = 'done';
+    const mins = ((Date.now() - t0) / 60000).toFixed(1);
+    ttsEmit({ phase: 'done', step: 'done', percent: 100, ok: true,
+              message: '语音引擎装配完成（耗时 ' + mins + ' 分钟）' });
+    return { ok: true, elapsedMs: Date.now() - t0 };
+  } catch (e) {
+    const msg = (e && e.message) || String(e);
+    const cancelled = job.cancelled || /已取消/.test(msg);
+    job.phase = 'done';
+    ttsEmit({ phase: cancelled ? 'cancelled' : 'error', step: 'done', percent: 0,
+              ok: false, message: cancelled ? '已取消' : msg });
+    return { ok: false, cancelled: cancelled, message: msg };
+  }
+}
+
+function ttsInstallCancel() {
+  if (ttsSetupJob && ttsSetupJob.phase && ttsSetupJob.phase !== 'done') {
+    ttsSetupJob.cancelled = true;
+    try { if (ttsSetupJob.abort) ttsSetupJob.abort(); } catch (e) {}
+    try { if (ttsSetupJob.child) ttsSetupJob.child.kill(); } catch (e) {}
+  }
+  return { ok: true };
+}
+
+// 向导窗口
+function createTtsSetupWindow() {
+  if (ttsSetupWin && !ttsSetupWin.isDestroyed()) { showAndFocus(ttsSetupWin, '语音引擎向导(已存在)'); return; }
+  const w = new BrowserWindow({
+    width: 720, height: 760,
+    minWidth: 560, minHeight: 520,
+    title: '语音引擎安装向导',
+    backgroundColor: '#11151c',
+    autoHideMenuBar: true,
+    show: false,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
+      preload: path.join(__dirname, 'preload.js')
+    }
+  });
+  w.loadURL('http://127.0.0.1:' + PORT + '/tts-setup.html');
+  placeNearPet(w, 720, 760);
+  w.once('ready-to-show', () => showAndFocus(w, '语音引擎向导(ready-to-show)'));
+  w.webContents.once('did-finish-load', () => showAndFocus(w, '语音引擎向导(did-finish-load)'));
+  w.on('did-fail-load', (_e, code, desc) => {
+    log('语音引擎向导页加载失败 code=' + code + ' ' + desc + '（仍强制显示窗口）');
+    showAndFocus(w, '语音引擎向导(did-fail-load)');
+  });
+  setTimeout(() => { if (!w.isDestroyed()) showAndFocus(w, '语音引擎向导(超时兜底)'); }, 1500);
+  w.on('closed', () => {
+    ttsSetupWin = null;
+    // 关窗即取消进行中的装配，否则会在看不见的地方继续吃流量和磁盘
+    if (ttsSetupJob && ttsSetupJob.phase && ttsSetupJob.phase !== 'done') {
+      ttsSetupJob.cancelled = true;
+      try { if (ttsSetupJob.abort) ttsSetupJob.abort(); } catch (e) {}
+    }
+  });
+  ttsSetupWin = w;
+  log('tts setup window created');
+}
+
+function toggleTtsSetupPanel() {
+  if (ttsSetupWin && !ttsSetupWin.isDestroyed()) {
+    if (ttsSetupJob && ttsSetupJob.phase && ttsSetupJob.phase !== 'done') {
+      showAndFocus(ttsSetupWin, '语音引擎向导(装配中，仅前置)');
+      return;
+    }
+    try { ttsSetupWin.close(); } catch (e) {}
+    ttsSetupWin = null;
+    return;
+  }
+  // 与其它面板一致：延后到托盘菜单关闭后再建窗
+  try {
+    setTimeout(() => {
+      try { createTtsSetupWindow(); }
+      catch (e) { console.error('[tts-wizard] 创建窗口失败：', (e && e.stack) || e); }
+    }, 60);
+  } catch (e) {
+    console.error('[tts-wizard] toggle 失败：', (e && e.stack) || e);
   }
 }
 
@@ -1952,6 +2296,8 @@ app.whenReady().then(() => {
     discoverAcpPort();
     // 拉起本地 TTS 语音侧车（失败不影响其余功能）
     ttsSpawn();
+    // 拉起 GPT-SoVITS 子侧车（克隆音色引擎；失败不影响其余功能，引擎会判为不可用）
+    gptsovitsSpawn();
     // 拉起音频侧车（方案③：逐端点回环；失败不影响其余功能，设置窗会显示不可用）
     audioSpawn();
     // 恢复上次配置的全局快捷键（范围 = 全局时才注册）
@@ -2565,6 +2911,10 @@ function buildTrayMenu() {
       label: '本地模型安装向导…',
       click: () => { toggleOllamaSetupPanel(); }
     },
+    {
+      label: '语音引擎安装向导…',
+      click: () => { toggleTtsSetupPanel(); }
+    },
     { type: 'separator' },
     {
       label: appState.locked ? '解锁窗口与模型位置/缩放' : '锁定窗口与模型位置/缩放',
@@ -2847,7 +3197,7 @@ function applyConfigKey(key, val) {
       idleState.enabled = !!val; sendViseme('pet:setIdleEnabled', idleState.enabled); return;
     case 'ttsEnabled':
       ttsState.enabled = !!val;
-      if (ttsState.enabled) ttsSpawn(); else ttsKill();
+      if (ttsState.enabled) { ttsSpawn(); gptsovitsSpawn(); } else { ttsKill(); gptsovitsKill(); }
       sendViseme('pet:setTTS', { enabled: ttsState.enabled }); return;
     case 'ttsEngine':
       ttsState.want = String(val); CONFIG.ttsEngine = String(val); ttsRestart(); return;
@@ -3352,6 +3702,29 @@ ipcMain.handle('pet:ollamaInstallCancel', async () => {
   return { ok: true };
 });
 
+// ---------------------------------------------------------------------------
+// 语音引擎向导的 IPC（检测 / 一键装配 / 取消）。进度经 pet:ttsSetupProgress 推送。
+// ---------------------------------------------------------------------------
+ipcMain.on('pet:openTtsSetup', () => { toggleTtsSetupPanel(); });
+
+ipcMain.handle('pet:ttsEngineDetect', async () => {
+  try { return await ttsDetect(); }
+  catch (e) { return { ok: false, message: String((e && e.message) || e) }; }
+});
+
+ipcMain.handle('pet:ttsEngineInstall', async () => {
+  try { return await ttsWizardInstall(); }
+  catch (e) { return { ok: false, message: String((e && e.message) || e) }; }
+});
+
+ipcMain.handle('pet:ttsEngineInstallCancel', async () => ttsInstallCancel());
+
+// 兜底：所有源都不通时，让用户用浏览器自己去 ModelScope 看权重
+ipcMain.handle('pet:ttsEngineOpenPage', async () => {
+  try { await shell.openExternal('https://modelscope.cn/models/XXXXRT/GPT-SoVITS-Pretrained'); return { ok: true }; }
+  catch (e) { return { ok: false, message: String((e && e.message) || e) }; }
+});
+
 // 兜底：所有源都不通时，让用户用浏览器自己下（浏览器有系统代理，往往比我们通）
 ipcMain.handle('pet:ollamaOpenDownloadPage', async () => {
   try { await shell.openExternal('https://ollama.com/download/windows'); return { ok: true }; }
@@ -3438,6 +3811,7 @@ app.on('before-quit', () => {
   try { unregisterHotkeys(); } catch (e) {}
   try { if (tray) { tray.destroy(); tray = null; } } catch (e) {}
   try { ttsKill(); } catch (e) {}
+  try { gptsovitsKill(); } catch (e) {}
   try { audioKill(); } catch (e) {}
   // Ollama 若是我们自己拉起的，随桌宠一起退出（不关用户本来就开着的那一个）
   try { ollamaStop(); } catch (e) {}

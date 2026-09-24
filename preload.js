@@ -246,6 +246,33 @@ contextBridge.exposeInMainWorld('desktopPet', {
     try { ipcRenderer.on('pet:ollamaSetupProgress', (_e, d) => cb(d || {})); } catch (e) {}
   },
 
+  // ==================== 语音引擎安装向导（一键装 GPT-SoVITS） ====================
+  // 打开向导窗口（托盘菜单、聊天链路未就绪的提示都走它）
+  openTtsSetup: () => { try { ipcRenderer.send('pet:openTtsSetup'); } catch (e) {} },
+  // 就绪度检测：{ok, status:{ready,checks:[{id,label,ok,detail,fix}],missing,needBytes,diskFreeBytes,...}}
+  ttsEngineDetect: () => {
+    try { return ipcRenderer.invoke('pet:ttsEngineDetect'); }
+    catch (e) { return Promise.resolve({ ok: false, message: String(e) }); }
+  },
+  // 一键装配（约 11.8 GB 下载），进度经 onTtsSetupProgress 推送
+  ttsEngineInstall: () => {
+    try { return ipcRenderer.invoke('pet:ttsEngineInstall'); }
+    catch (e) { return Promise.resolve({ ok: false, message: String(e) }); }
+  },
+  ttsEngineInstallCancel: () => {
+    try { return ipcRenderer.invoke('pet:ttsEngineInstallCancel'); }
+    catch (e) { return Promise.resolve({ ok: false }); }
+  },
+  // 兜底：浏览器打开 ModelScope 权重页
+  ttsEngineOpenPage: () => {
+    try { return ipcRenderer.invoke('pet:ttsEngineOpenPage'); }
+    catch (e) { return Promise.resolve({ ok: false }); }
+  },
+  // 装配进度回调（phase: python|source|weights|deps|fixups|voice|verify|done|error|cancelled|log）
+  onTtsSetupProgress: (cb) => {
+    try { ipcRenderer.on('pet:ttsSetupProgress', (_e, d) => cb(d || {})); } catch (e) {}
+  },
+
   // 设置页「试播」：让桌宠立即播放指定绑定
   triggerAsset: (id) => {
     try { return ipcRenderer.invoke('pet:triggerAsset', id); }

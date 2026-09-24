@@ -1,0 +1,37 @@
+{
+  "build_prompt_sec": 0.67,
+  "runs": [
+    {
+      "tag": "long#0",
+      "synth_sec": 23.37,
+      "audio_sec": 6.64,
+      "rtf": 3.52,
+      "ar_gen_sec": 23.21,
+      "vocoder_sec": 0.12
+    },
+    {
+      "tag": "long#1",
+      "synth_sec": 23.17,
+      "audio_sec": 7.04,
+      "rtf": 3.29,
+      "ar_gen_sec": 23.08,
+      "vocoder_sec": 0.07
+    },
+    {
+      "tag": "long#2",
+      "synth_sec": 26.92,
+      "audio_sec": 8.0,
+      "rtf": 3.36,
+      "ar_gen_sec": 26.83,
+      "vocoder_sec": 0.08
+    },
+    {
+      "tag": "short",
+      "synth_sec": 5.05,
+      "audio_sec": 1.52,
+      "rtf": 3.32,
+      "ar_gen_sec": 5.0,
+      "vocoder_sec": 0.04
+    }
+  ]
+}

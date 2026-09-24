@@ -69,3 +69,21 @@ _*.txt
 
 # 说明：app/data/*.bak 是人设台词档（affectionate / kuudere / kouhai），
 #       属于内容资产，有意保留在仓库里，故不排除 *.bak。
+
+# ---------- 5. 语音引擎：第三方源码 / 权重 / Python 环境（体积共约 21 GB）。
+#               GPT-SoVITS 是第三方项目，权重与 venv 都不能进仓库；
+#               使用者由「语音引擎安装向导」按需下载（见 tts/provision_engine.py）。
+#               仓库里只保留我们自己的脚本（tts/*.py）。
+tts/GPT-SoVITS/
+tts/GPT-SoVITS.tar.gz
+tts/venv-*/
+tts/gptsovits-models/
+tts/qwen3tts-models/
+tts/_setup/
+
+# ---------- 6. 语音实验产出的音频：由声纹派生，与上面的 app/data/lines/*.wav 同理，
+#               不宜公开；对应的 .json/.txt 测量数据保留（文档要引用）。
+tts/results/*.wav
+tts/results/**/*.wav
+tools/bench-tts/results/*.wav
+tools/bench-tts/results/**/*.wav

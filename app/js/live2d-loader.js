@@ -1381,9 +1381,8 @@
     // 这样 chat 回复也能做出 a/i/u/e/o 对照口型，而不是回归匀速张嘴。
     _driveChatMouth(dt) {
       const text = this._chatText || '';
-      if (!text) {                                        // 还没收到文本：先用正弦保底，避免嘴僵
-        this._setParam('ParamMouthOpenY', 0.55 + 0.45 * Math.sin(Date.now() / 70));
-        this._setParam('ParamMouthForm', 0.4 + this._emoCur.mouthForm);
+      if (!text) {   // 思考/等待期还没收到文本：闭合嘴唇，不空转（延迟冒泡后这段时间可能很长）
+        this._clearMouth();
         return;
       }
       this._chatT += dt;
@@ -1401,6 +1400,46 @@
     feedChatText(t) {
       this._chatText = String(t || '');
       this._loadVowels(this._chatText).then((v) => { this._chatVowels = v; });
+    }
+
+    // 聊天回复的 TTS 音频开始播放时由渲染端调用：把本轮台词交给「音频驱动口型」。
+    // 与 playIdleLine 同引擎（mode='idle' 才会走 _audioMouth 分支），差别是不触发
+    // onIdleLine 气泡回调、不重排待机计时；口型由 window.__ttsRms 驱动开合、
+    // __ttsProgress 推进字指针（元音形状与分句情绪随之对齐），播放结束由 onAudioEnded 收尾闭口。
+    // ——这是「新引擎也要元音同步」的关键：聊天回复此前走 mode='chat' 的文本口型，
+    //   永远进不了音频分支，于是语音播放时嘴反而不动。
+    startAudioChat(text, emo) {
+      const line = String(text || '');
+      this._talk = {
+        active: true, mode: 'idle', text: line,
+        i: 0, t: 0, charDur: this._randCharDur(), peak: this._randPeak(), vowels: null,
+        emo: (typeof emo === 'string') ? emo : null,
+        emoList: this._buildEmoList(line, emo)
+      };
+      this._emoLinger = ''; this._emoLingerUntil = 0;
+      this._audioOpen = 0;
+      this._loadVowels(line).then((v) => {
+        if (this._talk.mode === 'idle' && this._talk.text === line) this._talk.vowels = v;
+      });
+      this._visemeStats = { seen: {}, maxNz: 0 };
+      if (this._silenceParam) this._setSilence(true);
+    }
+
+    // 聊天回复「未开语音」时由渲染端调用：用文本驱动口型（C8 断句，逐字开合），
+    // 播完自动闭口（见 _mouth 的 idle 文本分支）。不触发 onIdleLine，气泡由聊天逻辑自管。
+    speakTextChat(text, emo) {
+      const line = String(text || '');
+      this._talk = {
+        active: true, mode: 'idle', text: line,
+        i: 0, t: 0, charDur: this._randCharDur(), peak: this._randPeak(), vowels: null,
+        emo: (typeof emo === 'string') ? emo : null,
+        emoList: this._buildEmoList(line, emo)
+      };
+      this._emoLinger = ''; this._emoLingerUntil = 0;
+      this._loadVowels(line).then((v) => {
+        if (this._talk.mode === 'idle' && this._talk.text === line) this._talk.vowels = v;
+      });
+      this._visemeStats = { seen: {}, maxNz: 0 };
     }
 
     // 点击模型：立即播一条交互台词（同待机口型同步），无需等待随机待机，便于测试

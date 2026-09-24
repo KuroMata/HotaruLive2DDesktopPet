@@ -1,0 +1,966 @@
+{
+  "target_f0": 112.76,
+  "sr": 24000,
+  "units": {
+    "hai1": {
+      "char": "嗨",
+      "f0": 113.4,
+      "dur": 0.4,
+      "path": "units/hai1.wav"
+    },
+    "zhu3": {
+      "char": "主",
+      "f0": 113.95,
+      "dur": 0.4,
+      "path": "units/zhu3.wav"
+    },
+    "zi": {
+      "char": "子",
+      "f0": 112.9,
+      "dur": 0.4,
+      "path": "units/zi.wav"
+    },
+    "da4": {
+      "char": "大",
+      "f0": 112.97,
+      "dur": 0.4,
+      "path": "units/da4.wav"
+    },
+    "ren2": {
+      "char": "人",
+      "f0": 112.43,
+      "dur": 0.4,
+      "path": "units/ren2.wav"
+    },
+    "jin1": {
+      "char": "今",
+      "f0": 118.53,
+      "dur": 0.4,
+      "path": "units/jin1.wav"
+    },
+    "tian1": {
+      "char": "天",
+      "f0": 111.95,
+      "dur": 0.4,
+      "path": "units/tian1.wav"
+    },
+    "xin1": {
+      "char": "心",
+      "f0": 112.68,
+      "dur": 0.4,
+      "path": "units/xin1.wav"
+    },
+    "qing2": {
+      "char": "情",
+      "f0": 112.1,
+      "dur": 0.4,
+      "path": "units/qing2.wav"
+    },
+    "bu4": {
+      "char": "不",
+      "f0": 113.52,
+      "dur": 0.317,
+      "path": "units/bu4.wav"
+    },
+    "cuo4": {
+      "char": "错",
+      "f0": 114.41,
+      "dur": 0.4,
+      "path": "units/cuo4.wav"
+    },
+    "o2": {
+      "char": "哦",
+      "f0": 113.68,
+      "dur": 0.4,
+      "path": "units/o2.wav"
+    },
+    "yao4": {
+      "char": "要",
+      "f0": 110.14,
+      "dur": 0.4,
+      "path": "units/yao4.wav"
+    },
+    "wo3": {
+      "char": "我",
+      "f0": 112.38,
+      "dur": 0.4,
+      "path": "units/wo3.wav"
+    },
+    "men": {
+      "char": "们",
+      "f0": 112.22,
+      "dur": 0.4,
+      "path": "units/men.wav"
+    },
+    "yi1": {
+      "char": "一",
+      "f0": 112.8,
+      "dur": 0.286,
+      "path": "units/yi1.wav"
+    },
+    "qi3": {
+      "char": "起",
+      "f0": 114.88,
+      "dur": 0.4,
+      "path": "units/qi3.wav"
+    },
+    "lai2": {
+      "char": "来",
+      "f0": 112.44,
+      "dur": 0.4,
+      "path": "units/lai2.wav"
+    },
+    "ge4": {
+      "char": "个",
+      "f0": 118.86,
+      "dur": 0.4,
+      "path": "units/ge4.wav"
+    },
+    "zhuo1": {
+      "char": "桌",
+      "f0": 117.74,
+      "dur": 0.4,
+      "path": "units/zhuo1.wav"
+    },
+    "mian4": {
+      "char": "面",
+      "f0": 112.46,
+      "dur": 0.4,
+      "path": "units/mian4.wav"
+    },
+    "zheng3": {
+      "char": "整",
+      "f0": 111.97,
+      "dur": 0.4,
+      "path": "units/zheng3.wav"
+    },
+    "li3": {
+      "char": "理",
+      "f0": 113.11,
+      "dur": 0.4,
+      "path": "units/li3.wav"
+    },
+    "xiao3": {
+      "char": "小",
+      "f0": 111.82,
+      "dur": 0.4,
+      "path": "units/xiao3.wav"
+    },
+    "tiao1": {
+      "char": "挑",
+      "f0": 117.7,
+      "dur": 0.398,
+      "path": "units/tiao1.wav"
+    },
+    "zhan4": {
+      "char": "战",
+      "f0": 111.16,
+      "dur": 0.4,
+      "path": "units/zhan4.wav"
+    },
+    "ba": {
+      "char": "吧",
+      "f0": 112.62,
+      "dur": 0.4,
+      "path": "units/ba.wav"
+    },
+    "zao3": {
+      "char": "早",
+      "f0": 112.72,
+      "dur": 0.384,
+      "path": "units/zao3.wav"
+    },
+    "shang4": {
+      "char": "上",
+      "f0": 114.16,
+      "dur": 0.4,
+      "path": "units/shang4.wav"
+    },
+    "hao3": {
+      "char": "好",
+      "f0": 111.22,
+      "dur": 0.4,
+      "path": "units/hao3.wav"
+    },
+    "wan3": {
+      "char": "晚",
+      "f0": 112.29,
+      "dur": 0.4,
+      "path": "units/wan3.wav"
+    },
+    "zai4": {
+      "char": "在",
+      "f0": 112.32,
+      "dur": 0.4,
+      "path": "units/zai4.wav"
+    },
+    "ma": {
+      "char": "吗",
+      "f0": 112.79,
+      "dur": 0.342,
+      "path": "units/ma.wav"
+    },
+    "xie4": {
+      "char": "谢",
+      "f0": 111.95,
+      "dur": 0.4,
+      "path": "units/xie4.wav"
+    },
+    "jian4": {
+      "char": "见",
+      "f0": 110.79,
+      "dur": 0.4,
+      "path": "units/jian4.wav"
+    },
+    "shen2": {
+      "char": "什",
+      "f0": 113.23,
+      "dur": 0.4,
+      "path": "units/shen2.wav"
+    },
+    "me": {
+      "char": "么",
+      "f0": 113.12,
+      "dur": 0.4,
+      "path": "units/me.wav"
+    },
+    "zen3": {
+      "char": "怎",
+      "f0": 110.76,
+      "dur": 0.4,
+      "path": "units/zen3.wav"
+    },
+    "wei4": {
+      "char": "为",
+      "f0": 113.22,
+      "dur": 0.4,
+      "path": "units/wei4.wav"
+    },
+    "ke3": {
+      "char": "可",
+      "f0": 112.16,
+      "dur": 0.4,
+      "path": "units/ke3.wav"
+    },
+    "yi3": {
+      "char": "以",
+      "f0": 111.83,
+      "dur": 0.4,
+      "path": "units/yi3.wav"
+    },
+    "bao3": {
+      "char": "宝",
+      "f0": 113.26,
+      "dur": 0.4,
+      "path": "units/bao3.wav"
+    },
+    "bei4": {
+      "char": "贝",
+      "f0": 111.0,
+      "dur": 0.4,
+      "path": "units/bei4.wav"
+    },
+    "guai1": {
+      "char": "乖",
+      "f0": 114.23,
+      "dur": 0.4,
+      "path": "units/guai1.wav"
+    },
+    "wan2": {
+      "char": "玩",
+      "f0": 112.72,
+      "dur": 0.34,
+      "path": "units/wan2.wav"
+    },
+    "dian4": {
+      "char": "电",
+      "f0": 113.62,
+      "dur": 0.4,
+      "path": "units/dian4.wav"
+    },
+    "nao3": {
+      "char": "脑",
+      "f0": 114.38,
+      "dur": 0.4,
+      "path": "units/nao3.wav"
+    },
+    "gan4": {
+      "char": "干",
+      "f0": 113.34,
+      "dur": 0.4,
+      "path": "units/gan4.wav"
+    },
+    "huo2": {
+      "char": "活",
+      "f0": 111.64,
+      "dur": 0.4,
+      "path": "units/huo2.wav"
+    },
+    "liao2": {
+      "char": "聊",
+      "f0": 113.84,
+      "dur": 0.4,
+      "path": "units/liao2.wav"
+    },
+    "chi1": {
+      "char": "吃",
+      "f0": 113.78,
+      "dur": 0.4,
+      "path": "units/chi1.wav"
+    },
+    "fan4": {
+      "char": "饭",
+      "f0": 119.48,
+      "dur": 0.4,
+      "path": "units/fan4.wav"
+    },
+    "he1": {
+      "char": "喝",
+      "f0": 109.68,
+      "dur": 0.4,
+      "path": "units/he1.wav"
+    },
+    "shui3": {
+      "char": "水",
+      "f0": 111.59,
+      "dur": 0.4,
+      "path": "units/shui3.wav"
+    },
+    "xiu1": {
+      "char": "休",
+      "f0": 114.55,
+      "dur": 0.4,
+      "path": "units/xiu1.wav"
+    },
+    "xi1": {
+      "char": "息",
+      "f0": 113.23,
+      "dur": 0.4,
+      "path": "units/xi1.wav"
+    },
+    "jia1": {
+      "char": "加",
+      "f0": 113.43,
+      "dur": 0.4,
+      "path": "units/jia1.wav"
+    },
+    "you2": {
+      "char": "油",
+      "f0": 111.28,
+      "dur": 0.4,
+      "path": "units/you2.wav"
+    },
+    "xi3": {
+      "char": "喜",
+      "f0": 109.34,
+      "dur": 0.4,
+      "path": "units/xi3.wav"
+    },
+    "huan1": {
+      "char": "欢",
+      "f0": 114.1,
+      "dur": 0.4,
+      "path": "units/huan1.wav"
+    },
+    "kai1": {
+      "char": "开",
+      "f0": 113.53,
+      "dur": 0.4,
+      "path": "units/kai1.wav"
+    },
+    "nan2": {
+      "char": "难",
+      "f0": 114.36,
+      "dur": 0.387,
+      "path": "units/nan2.wav"
+    },
+    "guo4": {
+      "char": "过",
+      "f0": 113.32,
+      "dur": 0.4,
+      "path": "units/guo4.wav"
+    },
+    "sheng1": {
+      "char": "生",
+      "f0": 115.39,
+      "dur": 0.4,
+      "path": "units/sheng1.wav"
+    },
+    "qi4": {
+      "char": "气",
+      "f0": 110.38,
+      "dur": 0.4,
+      "path": "units/qi4.wav"
+    },
+    "hai4": {
+      "char": "害",
+      "f0": 112.08,
+      "dur": 0.4,
+      "path": "units/hai4.wav"
+    },
+    "pa4": {
+      "char": "怕",
+      "f0": 114.46,
+      "dur": 0.4,
+      "path": "units/pa4.wav"
+    },
+    "peng2": {
+      "char": "朋",
+      "f0": 112.27,
+      "dur": 0.4,
+      "path": "units/peng2.wav"
+    },
+    "you3": {
+      "char": "友",
+      "f0": 113.2,
+      "dur": 0.4,
+      "path": "units/you3.wav"
+    },
+    "shi2": {
+      "char": "时",
+      "f0": 111.15,
+      "dur": 0.4,
+      "path": "units/shi2.wav"
+    },
+    "jian1": {
+      "char": "间",
+      "f0": 113.43,
+      "dur": 0.4,
+      "path": "units/jian1.wav"
+    },
+    "xian4": {
+      "char": "现",
+      "f0": 114.93,
+      "dur": 0.4,
+      "path": "units/xian4.wav"
+    },
+    "shi3": {
+      "char": "始",
+      "f0": 113.14,
+      "dur": 0.4,
+      "path": "units/shi3.wav"
+    },
+    "jie2": {
+      "char": "结",
+      "f0": 110.95,
+      "dur": 0.4,
+      "path": "units/jie2.wav"
+    },
+    "shu4": {
+      "char": "束",
+      "f0": 115.24,
+      "dur": 0.4,
+      "path": "units/shu4.wav"
+    },
+    "da3": {
+      "char": "打",
+      "f0": 110.47,
+      "dur": 0.4,
+      "path": "units/da3.wav"
+    },
+    "guan1": {
+      "char": "关",
+      "f0": 112.55,
+      "dur": 0.4,
+      "path": "units/guan1.wav"
+    },
+    "bi4": {
+      "char": "闭",
+      "f0": 117.18,
+      "dur": 0.264,
+      "path": "units/bi4.wav"
+    },
+    "ni3": {
+      "char": "你",
+      "f0": 109.85,
+      "dur": 0.4,
+      "path": "units/ni3.wav"
+    },
+    "yang4": {
+      "char": "样",
+      "f0": 113.45,
+      "dur": 0.4,
+      "path": "units/yang4.wav"
+    },
+    "shi4": {
+      "char": "是",
+      "f0": 113.07,
+      "dur": 0.4,
+      "path": "units/shi4.wav"
+    },
+    "zhen1": {
+      "char": "真",
+      "f0": 112.26,
+      "dur": 0.4,
+      "path": "units/zhen1.wav"
+    },
+    "de": {
+      "char": "的",
+      "f0": 111.67,
+      "dur": 0.4,
+      "path": "units/de.wav"
+    },
+    "dang1": {
+      "char": "当",
+      "f0": 109.99,
+      "dur": 0.4,
+      "path": "units/dang1.wav"
+    },
+    "ran2": {
+      "char": "然",
+      "f0": 109.78,
+      "dur": 0.4,
+      "path": "units/ran2.wav"
+    },
+    "ya": {
+      "char": "呀",
+      "f0": 113.01,
+      "dur": 0.4,
+      "path": "units/ya.wav"
+    },
+    "mei2": {
+      "char": "没",
+      "f0": 113.75,
+      "dur": 0.4,
+      "path": "units/mei2.wav"
+    },
+    "wen4": {
+      "char": "问",
+      "f0": 111.24,
+      "dur": 0.304,
+      "path": "units/wen4.wav"
+    },
+    "ti2": {
+      "char": "题",
+      "f0": 112.08,
+      "dur": 0.456,
+      "path": "units/ti2.wav"
+    },
+    "shuo1": {
+      "char": "说",
+      "f0": 114.17,
+      "dur": 0.431,
+      "path": "units/shuo1.wav"
+    },
+    "shui2": {
+      "char": "谁",
+      "f0": 116.65,
+      "dur": 0.4,
+      "path": "units/shui2.wav"
+    },
+    "lei4": {
+      "char": "累",
+      "f0": 113.13,
+      "dur": 0.291,
+      "path": "units/lei4.wav"
+    },
+    "le": {
+      "char": "了",
+      "f0": 113.6,
+      "dur": 0.4,
+      "path": "units/le.wav"
+    },
+    "kun4": {
+      "char": "困",
+      "f0": 111.89,
+      "dur": 0.419,
+      "path": "units/kun4.wav"
+    },
+    "e4": {
+      "char": "饿",
+      "f0": 115.0,
+      "dur": 0.295,
+      "path": "units/e4.wav"
+    },
+    "dui4": {
+      "char": "对",
+      "f0": 112.96,
+      "dur": 0.307,
+      "path": "units/dui4.wav"
+    },
+    "kan4": {
+      "char": "看",
+      "f0": 113.98,
+      "dur": 0.4,
+      "path": "units/kan4.wav"
+    },
+    "zhe4": {
+      "char": "这",
+      "f0": 112.52,
+      "dur": 0.4,
+      "path": "units/zhe4.wav"
+    },
+    "na4": {
+      "char": "那",
+      "f0": 109.87,
+      "dur": 0.4,
+      "path": "units/na4.wav"
+    },
+    "ta1": {
+      "char": "它",
+      "f0": 131.5,
+      "dur": 0.4,
+      "path": "units/ta1.wav"
+    },
+    "ye3": {
+      "char": "也",
+      "f0": 107.98,
+      "dur": 0.4,
+      "path": "units/ye3.wav"
+    },
+    "dou1": {
+      "char": "都",
+      "f0": 114.17,
+      "dur": 0.4,
+      "path": "units/dou1.wav"
+    },
+    "na3": {
+      "char": "哪",
+      "f0": 110.75,
+      "dur": 0.4,
+      "path": "units/na3.wav"
+    },
+    "er2": {
+      "char": "儿",
+      "f0": 116.12,
+      "dur": 0.4,
+      "path": "units/er2.wav"
+    },
+    "cai2": {
+      "char": "才",
+      "f0": 111.41,
+      "dur": 0.4,
+      "path": "units/cai2.wav"
+    },
+    "neng2": {
+      "char": "能",
+      "f0": 112.02,
+      "dur": 0.407,
+      "path": "units/neng2.wav"
+    },
+    "ru2": {
+      "char": "如",
+      "f0": 112.67,
+      "dur": 0.4,
+      "path": "units/ru2.wav"
+    },
+    "guo3": {
+      "char": "果",
+      "f0": 113.39,
+      "dur": 0.4,
+      "path": "units/guo3.wav"
+    },
+    "yin1": {
+      "char": "因",
+      "f0": 111.31,
+      "dur": 0.4,
+      "path": "units/yin1.wav"
+    },
+    "suo3": {
+      "char": "所",
+      "f0": 108.56,
+      "dur": 0.4,
+      "path": "units/suo3.wav"
+    },
+    "dan4": {
+      "char": "但",
+      "f0": 112.28,
+      "dur": 0.4,
+      "path": "units/dan4.wav"
+    },
+    "qie3": {
+      "char": "且",
+      "f0": 111.89,
+      "dur": 0.4,
+      "path": "units/qie3.wav"
+    },
+    "hou4": {
+      "char": "候",
+      "f0": 112.3,
+      "dur": 0.4,
+      "path": "units/hou4.wav"
+    },
+    "nian2": {
+      "char": "年",
+      "f0": 111.55,
+      "dur": 0.4,
+      "path": "units/nian2.wav"
+    },
+    "yue4": {
+      "char": "月",
+      "f0": 112.91,
+      "dur": 0.4,
+      "path": "units/yue4.wav"
+    },
+    "fen4": {
+      "char": "份",
+      "f0": 114.79,
+      "dur": 0.45,
+      "path": "units/fen4.wav"
+    },
+    "hao4": {
+      "char": "号",
+      "f0": 111.86,
+      "dur": 0.4,
+      "path": "units/hao4.wav"
+    },
+    "dian3": {
+      "char": "点",
+      "f0": 112.14,
+      "dur": 0.4,
+      "path": "units/dian3.wav"
+    },
+    "fen1": {
+      "char": "分",
+      "f0": 111.75,
+      "dur": 0.4,
+      "path": "units/fen1.wav"
+    },
+    "miao3": {
+      "char": "秒",
+      "f0": 113.19,
+      "dur": 0.4,
+      "path": "units/miao3.wav"
+    },
+    "zhong1": {
+      "char": "钟",
+      "f0": 108.17,
+      "dur": 0.4,
+      "path": "units/zhong1.wav"
+    },
+    "hua4": {
+      "char": "话",
+      "f0": 114.74,
+      "dur": 0.385,
+      "path": "units/hua4.wav"
+    },
+    "dong1": {
+      "char": "东",
+      "f0": 113.91,
+      "dur": 0.4,
+      "path": "units/dong1.wav"
+    },
+    "xia4": {
+      "char": "下",
+      "f0": 113.96,
+      "dur": 0.4,
+      "path": "units/xia4.wav"
+    },
+    "qian2": {
+      "char": "前",
+      "f0": 112.22,
+      "dur": 0.4,
+      "path": "units/qian2.wav"
+    },
+    "zuo3": {
+      "char": "左",
+      "f0": 112.13,
+      "dur": 0.4,
+      "path": "units/zuo3.wav"
+    },
+    "bian1": {
+      "char": "边",
+      "f0": 117.4,
+      "dur": 0.4,
+      "path": "units/bian1.wav"
+    },
+    "you4": {
+      "char": "右",
+      "f0": 113.67,
+      "dur": 0.4,
+      "path": "units/you4.wav"
+    },
+    "wai4": {
+      "char": "外",
+      "f0": 110.77,
+      "dur": 0.4,
+      "path": "units/wai4.wav"
+    },
+    "chu1": {
+      "char": "出",
+      "f0": 113.58,
+      "dur": 0.4,
+      "path": "units/chu1.wav"
+    },
+    "jin4": {
+      "char": "进",
+      "f0": 111.69,
+      "dur": 0.4,
+      "path": "units/jin4.wav"
+    },
+    "qu4": {
+      "char": "去",
+      "f0": 110.91,
+      "dur": 0.4,
+      "path": "units/qu4.wav"
+    },
+    "zou3": {
+      "char": "走",
+      "f0": 113.11,
+      "dur": 0.4,
+      "path": "units/zou3.wav"
+    },
+    "ting1": {
+      "char": "听",
+      "f0": 112.69,
+      "dur": 0.4,
+      "path": "units/ting1.wav"
+    },
+    "ming2": {
+      "char": "明",
+      "f0": 113.83,
+      "dur": 0.4,
+      "path": "units/ming2.wav"
+    },
+    "bai2": {
+      "char": "白",
+      "f0": 113.65,
+      "dur": 0.4,
+      "path": "units/bai2.wav"
+    },
+    "zhi1": {
+      "char": "知",
+      "f0": 111.0,
+      "dur": 0.391,
+      "path": "units/zhi1.wav"
+    },
+    "dao4": {
+      "char": "道",
+      "f0": 112.25,
+      "dur": 0.217,
+      "path": "units/dao4.wav"
+    },
+    "xiang3": {
+      "char": "想",
+      "f0": 112.23,
+      "dur": 0.425,
+      "path": "units/xiang3.wav"
+    },
+    "wang4": {
+      "char": "忘",
+      "f0": 114.33,
+      "dur": 0.4,
+      "path": "units/wang4.wav"
+    },
+    "ji4": {
+      "char": "记",
+      "f0": 112.26,
+      "dur": 0.4,
+      "path": "units/ji4.wav"
+    },
+    "zhu4": {
+      "char": "住",
+      "f0": 112.03,
+      "dur": 0.4,
+      "path": "units/zhu4.wav"
+    },
+    "xue2": {
+      "char": "学",
+      "f0": 111.97,
+      "dur": 0.4,
+      "path": "units/xue2.wav"
+    },
+    "hui4": {
+      "char": "会",
+      "f0": 111.94,
+      "dur": 0.4,
+      "path": "units/hui4.wav"
+    },
+    "zuo4": {
+      "char": "做",
+      "f0": 113.37,
+      "dur": 0.4,
+      "path": "units/zuo4.wav"
+    },
+    "shui4": {
+      "char": "睡",
+      "f0": 106.14,
+      "dur": 0.4,
+      "path": "units/shui4.wav"
+    },
+    "jue2": {
+      "char": "觉",
+      "f0": 107.91,
+      "dur": 0.4,
+      "path": "units/jue2.wav"
+    },
+    "chang4": {
+      "char": "唱",
+      "f0": 117.28,
+      "dur": 0.288,
+      "path": "units/chang4.wav"
+    },
+    "ge1": {
+      "char": "歌",
+      "f0": 113.64,
+      "dur": 0.359,
+      "path": "units/ge1.wav"
+    },
+    "le4": {
+      "char": "乐",
+      "f0": 111.6,
+      "dur": 0.4,
+      "path": "units/le4.wav"
+    },
+    "ying3": {
+      "char": "影",
+      "f0": 113.71,
+      "dur": 0.4,
+      "path": "units/ying3.wav"
+    },
+    "shu1": {
+      "char": "书",
+      "f0": 115.08,
+      "dur": 0.4,
+      "path": "units/shu1.wav"
+    },
+    "gong1": {
+      "char": "工",
+      "f0": 112.29,
+      "dur": 0.4,
+      "path": "units/gong1.wav"
+    },
+    "xi2": {
+      "char": "习",
+      "f0": 123.52,
+      "dur": 0.4,
+      "path": "units/xi2.wav"
+    },
+    "nao4": {
+      "char": "闹",
+      "f0": 113.21,
+      "dur": 0.4,
+      "path": "units/nao4.wav"
+    },
+    "xiao4": {
+      "char": "笑",
+      "f0": 111.51,
+      "dur": 0.347,
+      "path": "units/xiao4.wav"
+    },
+    "ku1": {
+      "char": "哭",
+      "f0": 112.1,
+      "dur": 0.356,
+      "path": "units/ku1.wav"
+    },
+    "an1": {
+      "char": "安",
+      "f0": 112.85,
+      "dur": 0.4,
+      "path": "units/an1.wav"
+    },
+    "jing4": {
+      "char": "静",
+      "f0": 115.56,
+      "dur": 0.284,
+      "path": "units/jing4.wav"
+    },
+    "re4": {
+      "char": "热",
+      "f0": 112.47,
+      "dur": 0.4,
+      "path": "units/re4.wav"
+    }
+  }
+}

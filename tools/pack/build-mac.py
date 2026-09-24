@@ -61,6 +61,9 @@ APP_BUNDLE = '黑叶萤桌宠.app'                            # zip 内的顶层
 RES_APP = APP_BUNDLE + '/Contents/Resources/app/'
 
 # ---- 与 package.json 的 build.files 白名单对齐 ----
+# ⚠ 两边的排除项必须同步：Windows 包用 build.files 的 "!..." 行，mac 包用下面这两个列表。
+#   2026-09-22 踩过：build.files 加了 "!app/config.json"（不再带开发机配置），
+#   但这里没跟着改，于是 mac 包仍然把 config.json 带了进去 —— 同一个坑只修了一半。
 ALLOW_TOP_FILES = ['main.js', 'preload.js', 'package.json']
 ALLOW_TOP_DIRS = ['app', 'tts']
 ALLOW_TOP_SINGLE = ['audio/audio_server.py']
@@ -76,6 +79,8 @@ NM_DROP = [
 
 EXCLUDE_PREFIXES = ['node_modules/' + x for x in NM_DROP] + [
     'audio/venv', 'audio/__pycache__', 'tts/__pycache__', 'tts/_out',
+    # 运行时状态 / 本机专属：进了包使用者首启就是开发机的设置（对应 build.files 的 "!app/config.json"）
+    'app/config.json',
 ]
 EXCLUDE_GLOBS = ['*.log', '*.7z', '*.pyc', '.DS_Store']
 

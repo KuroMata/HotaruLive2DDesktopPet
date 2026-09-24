@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>语音引擎安装向导</title>
+<style>
+  :root{
+    --bg:#11151c; --panel:#171d27; --panel2:#1d2431; --line:#2a3342;
+    --text:#e8eef6; --sub:#93a0b5; --accent:#4f9cf9; --accent2:#7bd88f; --warn:#f0b849; --bad:#e8794a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:18px 20px 26px;background:var(--bg);color:var(--text);
+       font-family:"Microsoft YaHei","Segoe UI",system-ui,sans-serif;font-size:13px;line-height:1.6}
+  h1{font-size:16px;margin:0 0 4px;font-weight:600}
+  .lead{color:var(--sub);font-size:12px;margin:0 0 14px}
+  .lead b{color:var(--text);font-weight:600}
+
+  .sec{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+       padding:13px 14px;margin-bottom:11px;transition:border-color .15s,opacity .15s}
+  .sec h2{font-size:13px;margin:0 0 9px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .sec h2 .dot{width:18px;height:18px;flex:0 0 18px;border-radius:50%;background:#2a3342;color:var(--sub);
+       font-size:11px;display:flex;align-items:center;justify-content:center;font-weight:700}
+  .sec h2 .tag{font-size:11px;color:var(--sub);font-weight:400}
+  .sec h2 .sp{flex:1}
+  .sec.active{border-color:#3a4658}
+  .sec.active h2 .dot{background:var(--accent);color:#fff}
+  .sec.done h2 .dot{background:var(--accent2);color:#0d1a12}
+  .sec.dim{opacity:.55}
+  .sec .sub{color:var(--sub);font-size:12px;margin:0 0 10px}
+
+  .rows{display:flex;flex-direction:column;gap:5px;margin-bottom:9px}
+  .r{display:flex;gap:8px;align-items:baseline}
+  .r .k{color:var(--sub);font-size:12px;flex:0 0 168px}
+  .r .v{font-size:12px;word-break:break-all}
+  .r .v.ok{color:var(--accent2)}
+  .r .v.bad{color:var(--warn)}
+  .r .fix{color:var(--sub);font-size:11.5px;margin-left:6px}
+
+  .hint{color:var(--sub);font-size:11.5px;margin-top:7px}
+  .hint.warn{color:var(--warn)}
+  .hidden{display:none !important}
+
+  .btnrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  button{font-family:inherit;cursor:pointer;border-radius:6px;font-size:12.5px}
+  button.go{padding:7px 18px;background:var(--accent);color:#fff;border:none}
+  button.go:hover{background:#3d8ce8}
+  button.go:disabled{background:#3a4658;cursor:default}
+  button.mini{padding:4px 10px;background:var(--panel2);color:var(--text);border:1px solid var(--line);font-size:12px}
+  button.mini:hover{border-color:#3a4658}
+  button.mini:disabled{color:#5a6678;cursor:default;border-color:var(--line)}
+
+  .prog{margin-top:11px}
+  .bar{height:8px;background:#0e131b;border:1px solid var(--line);border-radius:5px;overflow:hidden}
+  .bar > i{display:block;height:100%;width:0;background:linear-gradient(90deg,#3d8ce8,#7bd88f);
+       transition:width .25s linear}
+  .bar.indet > i{width:30% !important;animation:slide 1.15s ease-in-out infinite}
+  @keyframes slide{0%{margin-left:0}50%{margin-left:70%}100%{margin-left:0}}
+  .progtext{font-size:11.5px;color:var(--sub);margin-top:6px}
+  .progtext b{color:var(--text);font-weight:600}
+  .steplist{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .steplist span{font-size:11px;color:var(--sub);border:1px solid var(--line);border-radius:20px;padding:2px 9px}
+  .steplist span.on{color:#fff;border-color:var(--accent);background:rgba(79,156,249,.16)}
+  .steplist span.ok{color:var(--accent2);border-color:rgba(123,216,143,.5)}
+
+  pre.log{margin:9px 0 0;padding:8px 9px;background:#0b0f16;border:1px solid var(--line);border-radius:6px;
+       font-size:11px;line-height:1.5;color:#8f9bb0;max-height:130px;overflow:auto;white-space:pre-wrap;
+       font-family:Consolas,"Cascadia Mono",monospace}
+
+  .tips{font-size:12px;color:var(--sub);margin:0}
+  .tips li{margin-bottom:4px}
+  .tips b{color:var(--text)}
+
+  footer{display:flex;align-items:center;gap:10px;margin-top:14px}
+  footer .sp{flex:1}
+
+  .banner{border-radius:8px;padding:9px 11px;font-size:12px;line-height:1.55;margin-bottom:12px}
+  .banner.info{background:rgba(79,156,249,.08);border:1px solid rgba(79,156,249,.28);color:var(--sub)}
+  .banner.warn{background:rgba(240,184,73,.10);border:1px solid rgba(240,184,73,.32);color:var(--warn)}
+  .banner.ok{background:rgba(123,216,143,.10);border:1px solid rgba(123,216,143,.3);color:var(--accent2)}
+  .banner b{color:var(--text)}
+</style>
+</head>
+<body>
+  <h1>语音引擎安装向导</h1>
+  <p class="lead">要让你自己的音色念出聊天回复，需要装一套 <b>GPT-SoVITS 语音引擎</b>（约 11.8 GB，首次安装时下载）。
+  <b>你的声库已经内置在安装包里</b>，装完说话用的就是你的声音，不用额外准备任何东西。</p>
+
+  <div class="banner info" id="topBanner">
+    为什么还要单独下载？因为通用引擎体积太大，塞不进安装包（Windows 安装包有 2 GB 上限），
+    所以做成"安装包只带声库（不到 1 MB），引擎首启现装"。中途可以随时关窗，下次接着来。
+  </div>
+
+  <!-- ① 检测 -->
+  <div class="sec" id="sec1">
+    <h2><span class="dot">1</span>环境检测<span class="sp"></span>
+      <button class="mini" id="btnDetect">重新检测</button></h2>
+    <div class="rows" id="rows"></div>
+    <div class="hint" id="detectHint"></div>
+  </div>
+
+  <!-- ② 一键装配 -->
+  <div class="sec" id="sec2">
+    <h2><span class="dot">2</span>装配语音引擎<span class="tag">约 11.8 GB</span></h2>
+    <p class="sub" id="installNote">会自动完成：准备 Python 环境 → 下载引擎源码 → 下载通用预训练权重（约 5.2 GB）
+      → 安装 PyTorch(CUDA) 与依赖 → 应用兼容性修补 → 就位声库 → 自检。
+      <b>只需点一次，中途可以关窗，下次续传。</b></p>
+    <div class="btnrow">
+      <button class="go" id="btnInstall">一键装配引擎</button>
+      <button class="mini" id="btnPage">浏览器打开权重页</button>
+      <button class="mini hidden" id="btnCancel">取消</button>
+    </div>
+    <div class="prog hidden" id="prog">
+      <div class="bar" id="barWrap"><i id="bar"></i></div>
+      <div class="progtext" id="progText"></div>
+      <div class="steplist" id="steps"></div>
+    </div>
+    <pre class="log hidden" id="log"></pre>
+  </div>
+
+  <!-- ③ 完成 -->
+  <div class="sec" id="sec3">
+    <h2><span class="dot">3</span>完成</h2>
+    <ul class="tips">
+      <li><b>第一次说话会慢</b>：模型要加载进显存，约 10~20 秒；之后常驻，不再等。</li>
+      <li><b>首句延迟约 5 秒</b>：GPT-SoVITS 是逐字生成的，这是它的固有地板，不是故障。</li>
+      <li><b>语速可在设置里调</b>：改 <code>app/config.json</code> 的 <code>gptsovitsSpeed</code>（&gt;1 更快）后重启桌宠。</li>
+      <li><b>想换声音</b>：替换 <code>tts/ref/prompt_9s.wav</code> 与同名的 <code>_reftext.txt</code> 即可换成任意音色。</li>
+    </ul>
+    <div class="btnrow" style="margin-top:10px">
+      <button class="go" id="btnUse">立即使用我的音色</button>
+      <span class="hint" id="useState"></span>
+    </div>
+  </div>
+
+  <footer>
+    <span class="hint" id="footHint"></span>
+    <div class="sp"></div>
+    <button class="mini" id="btnClose">关闭</button>
+  </footer>
+
+<script src="/js/tts-setup.js"></script>
+</body>
+</html>

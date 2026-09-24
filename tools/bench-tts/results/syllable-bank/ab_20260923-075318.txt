@@ -1,0 +1,4 @@
+TEXT: 嗨嗨，主子大人，今天心情不错哦。要不我们一起来个桌面整理小挑战吧？
+
+BANK tag=L2_bank  splice=0.043s  audio=11.16s
+LIVE synth=22.51s  audio=7.12s

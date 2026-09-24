@@ -1,0 +1,10 @@
+{
+  "lines": [
+    "OK 找到桌宠页面：http://127.0.0.1:18765/",
+    "桥接：{\"d\":\"object\",\"detect\":\"function\",\"install\":\"function\",\"open\":\"function\",\"setCfg\":\"function\"}",
+    "检测结果：{\"ok\":true,\"ready\":true,\"missing\":[],\"checks\":8,\"python\":\"C:\\\\Users\\\\Administrator\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python311\\\\python.exe\",\"sb\":true}",
+    "OK 向导窗口已打开：http://127.0.0.1:18765/tts-setup.html",
+    "向导页面：{\"title\":\"语音引擎安装向导\",\"rows\":8,\"hint\":\"引擎已就绪，可以直接用你的音色说话了。\",\"head\":\"语音引擎安装向导\\n\\n要让你自己的音色念出聊天回复，需要装一套 GPT-SoVITS 语音引擎（约 11.8 GB，首次安\"}",
+    "TTS_WIZARD_OK"
+  ]
+}

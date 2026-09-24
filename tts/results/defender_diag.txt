@@ -1,0 +1,2 @@
+﻿Get-MpPreference ERR: 操作失败，出现以下错误: 0x800106ba
+Lingering python/pip: 0
